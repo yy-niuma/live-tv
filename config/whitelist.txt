@@ -1,0 +1,9 @@
+akamai.com
+cloudfront.net
+fastly.net
+cdn.jsdelivr.net
+github.com
+githubusercontent.com
+loli.net
+muxcloud.net
+testfile.net

@@ -1,0 +1,168 @@
+# IPTV Channel Alias Mapping
+# Format: 原始名称 -> 标准名称
+# Lines starting with # are comments
+
+# ===== 清理规则 =====
+# 移除 [BD]/[HD]/[SD] 等前缀
+[BD]
+[HD]
+[SD]
+
+# ===== TVB =====
+翡翠台 -> TVB 翡翠台
+TVB翡翠台 -> TVB 翡翠台
+TVB翡翠台 1080P -> TVB 翡翠台
+翡翠台4K -> TVB 翡翠台
+翡翠台北美版 -> TVB 翡翠台
+TVB 翡翠台 -> TVB 翡翠台
+翡翠台 - 线路1（大陆线路） -> TVB 翡翠台
+翡翠台 - 线路2（大陆线路） -> TVB 翡翠台
+翡翠台 - 线路3（高清，香港线路） -> TVB 翡翠台
+TVB 翡翠台backup -> TVB 翡翠台
+[BD]翡翠台 -> TVB 翡翠台
+tvb翡翠 -> TVB 翡翠台
+
+明珠台 -> TVB 明珠台
+TVB明珠台 -> TVB 明珠台
+翡翠明珠台 -> TVB 明珠台
+TVB 明珠台 -> TVB 明珠台
+明珠台 -> TVB 明珠台
+翡翠明珠台 - 线路2（高清，香港线路） -> TVB 明珠台
+[HD]明珠台高清 -> TVB 明珠台
+
+J2 -> TVB J2
+TVBj2 -> TVB J2
+tvbj2 -> TVB J2
+TVB J2 -> TVB J2
+翡翠台2 - J2（高清，香港线路） -> TVB J2
+
+TVB无线新闻 -> TVB 无线新闻
+TVB新聞 -> TVB 新闻
+TVB 翡翠台 -> TVB 翡翠台
+
+# TVB 其他频道
+TVB星河 -> TVB 星河
+tvb星河 -> TVB 星河
+TVB 星河 -> TVB 星河
+
+TVB亚洲剧台 -> TVB 亚洲剧台
+TVB亚洲劇臺 -> TVB 亚洲剧台
+tvb亚洲剧台 -> TVB 亚洲剧台
+
+TVB Classic -> TVB 经典台
+tvb经典 -> TVB 经典台
+[SD]tvb经典 -> TVB 经典台
+
+TVB Plus -> TVB Plus
+tvbplus -> TVB Plus
+[BD]tvbplus -> TVB Plus
+[HD]tvbplus -> TVB Plus
+[BD]tvbplus超清 -> TVB Plus
+TVB Plus超清 -> TVB Plus
+TVBPearl -> TVB 明珠台
+
+TVB 明珠台高清 -> TVB 明珠台
+TVB J1 -> TVB J2
+
+tvb娱乐新闻 -> TVB 娱乐新闻
+TVB娱乐新闻 -> TVB 娱乐新闻
+TVB娱乐新闻台 -> TVB 娱乐新闻
+TVB生活台 -> TVB 生活台
+TVB娱乐 -> TVB
+
+# ===== ViuTV =====
+ViuTV -> ViuTV
+viutv -> ViuTV
+Viu TV -> ViuTV
+viu tv -> ViuTV
+ViuTVsix -> ViuTV 6
+viutv6 -> ViuTV 6
+Viu 6 -> ViuTV 6
+[HD]viutv -> ViuTV
+[HD]viutv高清 -> ViuTV
+[HD]viutv6高清 -> ViuTV 6
+
+# ===== RTHK =====
+RTHK -> RTHK
+rthk -> RTHK
+香港电台 -> RTHK
+港台電視 -> RTHK
+RTHK 电视 -> RTHK
+
+# ===== HOY TV =====
+HOY TV -> HOY TV
+hoytv -> HOY TV
+HOYTV -> HOY TV
+hoy tv -> HOY TV
+
+# ===== Now TV =====
+Now TV -> Now TV
+nowtv -> Now TV
+NowTV -> Now TV
+now tv -> Now TV
+NOW新闻 -> Now 新闻
+NOW财经 -> Now 财经
+
+# ===== 台湾频道 =====
+华视 -> 华视
+華視 -> 华视
+[SD]中视 -> 中视
+中视 -> 中视
+中視 -> 中视
+民视 -> 民视
+民視 -> 民视
+公视 -> 公视
+公視 -> 公视
+[HD]公视 -> 公视
+
+东森 -> 东森
+東森 -> 东森
+三立 -> 三立
+三立台湾 -> 三立 台湾
+华视 -> 华视
+
+TVBS -> TVBS
+tvbs -> TVBS
+TVBS新闻 -> TVBS 新闻
+tvbs新闻 -> TVBS 新闻
+TVBS亚洲 -> TVBS 亚洲台
+tvbs亚洲 -> TVBS 亚洲台
+TVBS 亚洲 -> TVBS 亚洲台
+tvbs闽南 -> TVBS 闽南台
+TVBS 闽南 -> TVBS 闽南台
+[BD]TVBS亚洲*28 -> TVBS 亚洲台
+TVBS-asia -> TVBS 亚洲台
+TVBSnew -> TVBS
+TVBSnew$ -> TVBS
+
+台视 -> 台视
+台視 -> 台视
+
+# ===== 凤凰卫视 =====
+凤凰卫视 -> 凤凰卫视
+凤凰卫视中文 -> 凤凰卫视 中文台
+凤凰卫视资讯 -> 凤凰卫视 资讯台
+凤凰卫视电影台 -> 凤凰卫视 电影台
+
+# ===== 央视频道 =====
+CCTV -> CCTV
+cctv -> CCTV
+CCTV- -> CCTV
+CCTV_ -> CCTV
+
+# ===== 有线电视 =====
+有线电视 -> 有线电视
+有线 -> 有线电视
+开电视 -> 有线电视
+Cable TV -> 有线电视
+
+# ===== 澳门 =====
+澳门 -> 澳门
+澳视 -> 澳视
+macau -> 澳门
+澳广视 -> 澳广视
+澳亚卫视 -> 澳亚卫视
+
+# ===== 其他清理 =====
+*28 -> (remove)
+* -> (remove)

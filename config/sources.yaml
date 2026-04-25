@@ -1,0 +1,111 @@
+# IPTV 数据源配置
+# priority: 1=最高优先, 2=高优先, 3=中优先, 4=一般, 5=补充, 6=低优先
+
+sources:
+  # === 最高优先：香港本地源 ===
+  - name: "sammy0101"
+    url: "https://raw.gh.registry.cyou/sammy0101/hk-iptv-auto/refs/heads/main/hk_live.m3u"
+    enabled: true
+    priority: 1
+
+  - name: "xiweiwong-hk-iptv"
+    url: "https://raw.gh.registry.cyou/xiweiwong/hk-iptv-auto/refs/heads/main/hk_live.m3u"
+    enabled: true
+    priority: 2
+
+  # === 高优先：香港/台湾新源 ===
+  - name: "zhi35-iptv"
+    url: "https://live.zhi35.com/iptv.m3u"
+    enabled: true
+    priority: 2
+
+  - name: "freetv-fun"
+    url: "https://t.freetv.fun/m3u/playlist.m3u"
+    enabled: true
+    priority: 2
+    headers:
+      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+
+  - name: "epg-pw"
+    url: "https://epg.pw/test_channels.m3u"
+    enabled: true
+    priority: 2
+
+  # === 中优先：i18n + 补充源 ===
+  - name: "fanmingming-live"
+    url: "https://raw.githubusercontent.com/fanmingming/live/main/tv/m3u/ipv6.m3u"
+    enabled: true
+    priority: 3
+
+  - name: "CCSH-iptv"
+    url: "https://raw.githubusercontent.com/CCSH/IPTV/master/live.m3u"
+    enabled: true
+    priority: 3
+
+  - name: "gitee-why006-TV"
+    url: "https://gitee.com/why006/TV/raw/master/output/result.m3u"
+    enabled: true
+    priority: 3
+
+  # === 低优先：i18n 补充源 ===
+  - name: "iptv-org"
+    url: "https://iptv-org.github.io/iptv/index.m3u"
+    enabled: true
+    priority: 4
+
+  - name: "hujingguang-iptv"
+    url: "https://raw.githubusercontent.com/hujingguang/ChinaIPTV/main/cnTV_AutoUpdate.m3u8"
+    enabled: true
+    priority: 4
+
+  - name: "Harbin-byte-iptv"
+    url: "https://raw.githubusercontent.com/Harbin-byte/iptv/master/lists/hong_kong.md"
+    enabled: true
+    priority: 4
+
+  - name: "suxuang-myIPTV"
+    url: "https://gh-proxy.com/raw.githubusercontent.com/suxuang/myIPTV/main/ipv4.m3u"
+    enabled: true
+    priority: 4
+
+  # === 补充源：Free-TV 各地区 ===
+  - name: "free-tv-hk"
+    url: "https://raw.githubusercontent.com/Free-TV/IPTV/master/lists/hong_kong.md"
+    enabled: true
+    priority: 5
+
+  - name: "free-tv-tw"
+    url: "https://raw.githubusercontent.com/Free-TV/IPTV/master/lists/taiwan.md"
+    enabled: true
+    priority: 5
+
+  - name: "free-tv-cn"
+    url: "https://raw.githubusercontent.com/Free-TV/IPTV/master/lists/china.md"
+    enabled: true
+    priority: 5
+
+  - name: "free-tv-jp"
+    url: "https://raw.githubusercontent.com/Free-TV/IPTV/master/lists/japan.md"
+    enabled: true
+    priority: 5
+
+  - name: "free-tv-kr"
+    url: "https://raw.githubusercontent.com/Free-TV/IPTV/master/lists/korea.md"
+    enabled: true
+    priority: 5
+
+  - name: "free-tv-us"
+    url: "https://raw.githubusercontent.com/Free-TV/IPTV/master/lists/usa.md"
+    enabled: true
+    priority: 6
+
+  - name: "free-tv-uk"
+    url: "https://raw.githubusercontent.com/Free-TV/IPTV/master/lists/uk.md"
+    enabled: true
+    priority: 6
+
+  # === 其他源 ===
+  - name: "vbskycn-iptv4"
+    url: "https://live.zbds.top/tv/iptv4.m3u"
+    enabled: true
+    priority: 5
