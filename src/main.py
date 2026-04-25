@@ -13,8 +13,14 @@ from src.generator import Generator
 from src.lib.cache import SimpleCache as Cache
 
 
-async def run(config_dir: str = None, output_dir: str = None, use_cache: bool = True, skip_validation: bool = False):
-    """运行完整流程"""
+async def run(config_dir: str = None, output_dir: str = None, use_cache: bool = True,
+              skip_validation: bool = False, skip_fetch: bool = False, fetch_timeout: int = 90):
+    """运行完整流程
+
+    Args:
+        skip_fetch: 跳过抓取步骤，使用缓存数据（无缓存则报错）
+        fetch_timeout: 抓取超时秒数（默认90秒）
+    """
     print("=" * 60)
     print("IPTV 抓取、验证、分组、生成工具")
     print("=" * 60)
@@ -28,19 +34,40 @@ async def run(config_dir: str = None, output_dir: str = None, use_cache: bool = 
 
     # 1. 抓取
     print("\n[Step 1/4] 抓取频道...")
-    if use_cache:
+    if skip_fetch:
+        channels_data = cache.get(cache_key)
+        if channels_data:
+            from src.fetcher import Channel
+            channels = [Channel(**d) for d in channels_data]
+            print(f"  ✓ 跳过抓取，使用缓存: {len(channels)} 个频道")
+        else:
+            print("  ❌ 跳过抓取但无缓存数据，请先正常运行一次抓取")
+            return None
+    elif use_cache:
         channels_data = cache.get(cache_key)
         if channels_data:
             print(f"  ✓ 使用缓存: {len(channels_data)} 个频道")
             from src.fetcher import Channel
             channels = [Channel(**d) for d in channels_data]
         else:
+            sources = config.sources
+            print(f"  开始抓取 {len(sources)} 个数据源（超时 {fetch_timeout}s）...")
             fetcher = Fetcher(config)
-            channels = await fetcher.fetch_all()
+            try:
+                channels = await asyncio.wait_for(fetcher.fetch_all(), timeout=fetch_timeout)
+            except asyncio.TimeoutError:
+                print(f"  ❌ 抓取超时（{fetch_timeout}s），请增加超时或使用 --skip-fetch 跳过")
+                return None
             cache.set(cache_key, [ch.__dict__ for ch in channels])
     else:
+        sources = config.sources
+        print(f"  开始抓取 {len(sources)} 个数据源（超时 {fetch_timeout}s）...")
         fetcher = Fetcher(config)
-        channels = await fetcher.fetch_all()
+        try:
+            channels = await asyncio.wait_for(fetcher.fetch_all(), timeout=fetch_timeout)
+        except asyncio.TimeoutError:
+            print(f"  ❌ 抓取超时（{fetch_timeout}s），请增加超时或使用 --skip-fetch 跳过")
+            return None
 
     print(f"  ✓ 抓取完成: 共 {len(channels)} 个频道")
 
@@ -102,6 +129,10 @@ def main():
     parser.add_argument("--output", "-o", default=None, help="输出目录")
     parser.add_argument("--no-cache", action="store_true", help="禁用缓存")
     parser.add_argument("--skip-validation", action="store_true", help="跳过 URL 验证")
+    parser.add_argument("--skip-fetch", action="store_true",
+                        help="跳过抓取步骤，使用缓存数据（无缓存则报错）")
+    parser.add_argument("--fetch-timeout", type=int, default=90,
+                        help="抓取超时秒数（默认90秒）")
     args = parser.parse_args()
 
     result = asyncio.run(run(
@@ -109,7 +140,14 @@ def main():
         output_dir=args.output,
         use_cache=not args.no_cache,
         skip_validation=args.skip_validation,
+        skip_fetch=args.skip_fetch,
+        fetch_timeout=args.fetch_timeout,
     ))
+
+    if result is None:
+        print("\n❌ 运行失败")
+        return
+
     print(f"\n📊 总计:")
     print(f"   有效频道: {result['total']}")
     print(f"   分组数: {result['groups']}")

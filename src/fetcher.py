@@ -68,6 +68,7 @@ class Fetcher:
         name = source.get("name", "unknown")
         url = source.get("url", "")
         priority = source.get("priority", 999)
+        print(f"  → 正在抓取: {name} ...")
 
         for attempt in range(self.max_retries):
             try:

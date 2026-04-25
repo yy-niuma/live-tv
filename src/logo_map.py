@@ -259,21 +259,44 @@ for k, v in LOGO_MAP.items():
 
 
 def get_logo_fuzzy(channel_name: str) -> str | None:
-    """Fuzzy match: try exact, then prefix parts, then safe contains."""
+    """Fuzzy match: try exact, then prefix parts, then safe contains.
+
+    Also tries a space-removed version to handle cases where LOGO_MAP
+    keys omit spaces between ASCII and Chinese (e.g. "tvb翡翠台" vs
+    normalized "tvb 翡翠台").
+    """
     norm = normalize(channel_name)
-    # Try exact normalized match
+
+    # ── 1. Exact normalized match ───────────────────────────────
     if norm in LOGO_MAP_CASE:
         return LOGO_MAP_CASE[norm]
-    # Try "name without suffix" match (progressively shorter prefixes)
+
+    # ── 2. Space-removed normalized match ──────────────────────
+    # LOGO_MAP keys use formats like "tvb翡翠台" (no space), but
+    # normalize() keeps the space from "TVB 翡翠台"
+    norm_nospace = norm.replace(" ", "")
+    if norm_nospace in LOGO_MAP_CASE:
+        return LOGO_MAP_CASE[norm_nospace]
+
+    # ── 3. Prefix match (progressively shorter) ───────────────
     parts = norm.split()
     if parts:
         for i in range(len(parts), 0, -1):
             key = ' '.join(parts[:i])
             if key in LOGO_MAP_CASE:
                 return LOGO_MAP_CASE[key]
-    # Try safe contains match: key must be >= 5 chars to avoid false positives
-    # (e.g., "jade" matching "al jadeed")
+            # Also try space-removed prefix
+            key_ns = key.replace(" ", "")
+            if key_ns in LOGO_MAP_CASE:
+                return LOGO_MAP_CASE[key_ns]
+
+    # ── 4. Safe contains match (key ≥ 5 chars for ASCII, any length for CJK) ─
     for key, url in LOGO_MAP_CASE.items():
-        if len(key) >= 5 and (key in norm or norm in key):
+        # CJK keys (no ASCII) can be short — use them as prefix match
+        is_cjk = all('\u4e00' <= c <= '\u9fff' for c in key)
+        if is_cjk:
+            if norm.startswith(key) or key in norm:
+                return url
+        elif len(key) >= 5 and (key in norm or norm in key):
             return url
     return None

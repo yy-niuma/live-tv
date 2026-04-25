@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Dict, Any, List
 
 from src.logo_map import get_logo_fuzzy
+from src.group.categorizer import is_hk_region as _is_hk_region
 
 
 # EPG URL
@@ -59,6 +60,26 @@ def sort_key(cat: str) -> tuple:
         return (1, cat)
 
 
+DIRTY_PATTERNS = [
+    "chrome/", "chrome\\", "safari", "likegecko", "like gecko",
+    "edg/", "edge/", "webkit",
+    "group-title=\"#EXTGRP",  # 残留的分组标记
+]
+
+def is_clean_name(name: str) -> bool:
+    """检查频道名是否干净（排除 M3U 解析失败的脏数据）"""
+    if not name or len(name) < 2:
+        return False
+    n_lower = name.lower()
+    # 过滤含浏览器标识的损坏名称
+    if any(p in n_lower for p in DIRTY_PATTERNS):
+        return False
+    # 过滤 URL 残留（名称看起来像 URL）
+    if "http" in n_lower and ("tvg-logo" in n_lower or ".png" in n_lower or ".jpg" in n_lower):
+        return False
+    return True
+
+
 def build_extinf(ch: Any, group: str = "") -> str:
     """构建 EXTINF 行"""
     attrs = []
@@ -73,41 +94,6 @@ def build_extinf(ch: Any, group: str = "") -> str:
 
     attr_str = " ".join(attrs) if attrs else ""
     return f"#EXTINF:-1 {attr_str},{ch.name}"
-
-
-def is_hk_region(name: str, group: str, cat: str = None) -> bool:
-    """判断是否为港台地区频道 (HK/TW/MO)"""
-    name_lower, group_lower = name.lower(), (group or "").lower()
-    full_text = name_lower + " " + group_lower
-
-    hk_exact = [
-        r"tvb", r"翡翠台", r"明珠台", r"j2", r"j1",
-        r"viutv", r"viu tv", r"viu6", r"viu 6",
-        r"rthk", r"港台電視", r"香港電台",
-        r"hoy tv", r"hoytv",
-        r"now tv", r"nowtv", r"now直播",
-        r"有线电视", r"开电视",
-        r"凤凰卫视", r"phoenix tv",
-    ]
-    tw_exact = [
-        r"tvbs", r"tvbs新闻",
-        r"台视主频", r"中视", r"民視", r"民視",
-        r"东森", r"東森", r"三立台湾",
-        r"华视", r"華視", r"大爱", r"公视",
-        r"\bttv\b", r"\bftv\b", r"\bpts\b", r"\bcna\b",
-        r"台湾台",
-    ]
-    mo_exact = [r"澳门", r"澳視", r"macau", r"澳广视"]
-
-    # 排除 CCTV/CETV
-    if re.search(r"\bcctv\b", name_lower) or re.search(r"\bcetv\b", name_lower):
-        return False
-
-    for p in hk_exact + tw_exact + mo_exact:
-        if re.search(p, full_text):
-            return True
-
-    return False
 
 
 class Generator:
@@ -131,7 +117,9 @@ class Generator:
             all_channels = []
 
             for ch in channels:
-                if is_hk_region(ch.name, ch.group, cat):
+                if not is_clean_name(ch.name):
+                    continue  # 跳过脏数据（M3U 解析失败的条目）
+                if _is_hk_region(ch.name, ch.group, cat):
                     hk_channels.append(ch)
                 all_channels.append(ch)
 
