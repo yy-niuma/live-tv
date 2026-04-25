@@ -1,48 +1,95 @@
-name: Update IPTV
+name: Update IPTV Playlists
 
 on:
+  # 每天北京时间 8:00（UTC 0:00）
   schedule:
-    # 每天 UTC 0 (北京时间 8:00) 运行
     - cron: "0 0 * * *"
+  # 手动触发（可传参数）
   workflow_dispatch:
+    inputs:
+      fetch_timeout:
+        description: "抓取超时秒数"
+        required: false
+        default: "300"
+        type: string
+      skip_validation:
+        description: "跳过 URL 验证"
+        required: false
+        default: "false"
+        type: string
+
+env:
+  PYTHON_VERSION: "3.11"
+  FETCH_TIMEOUT: ${{ inputs.fetch_timeout || '300' }}
 
 jobs:
   update:
+    name: 抓取 → 验证 → 生成 → 推送
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           persist-credentials: true
+          fetch-depth: 1
 
-      - name: Set up Python
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install dependencies
+      - name: 安装依赖
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run IPTV update
+      - name: 抓取数据
+        id: fetch
         run: |
-          python -u -m src.main --no-cache --output ./output
+          echo "::group::抓取阶段"
+          python -u -m src.main \
+            --no-cache \
+            --fetch-timeout ${{ env.FETCH_TIMEOUT }} \
+            --output ./output
+          echo "::endgroup::"
 
-      - name: Commit and push
+      - name: 生成播放列表
+        run: |
+          echo "::group::生成阶段"
+          python -u -m src.main \
+            --skip-fetch \
+            --output ./output
+          echo "::endgroup::"
+
+      - name: 检查是否有更新
+        id: changes
+        run: |
+          if git diff --stat output/ | grep -q "0 files changed"; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "📭 output/ 无变化，跳过提交"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "📝 output/ 有变化，将提交"
+            git diff --stat output/
+          fi
+
+      - name: 提交并推送
+        if: steps.changes.outputs.changed == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add output/
-          git commit -m "Update IPTV $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
-          git push origin HEAD:main || echo "Push failed"
+          COMMIT_MSG="Update IPTV $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          git commit -m "$COMMIT_MSG"
+          git push origin HEAD:main
+          echo "✅ 已推送: $COMMIT_MSG"
 
-      - name: Upload artifacts
+      - name: 上传产物（保留7天）
         uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: iptv-output
+          name: iptv-output-${{ github.run_number }}
           path: output/
           retention-days: 7
