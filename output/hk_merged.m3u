@@ -2,8 +2,8 @@
 #EXTVLCOPT:network-caching=1000
 #EXTVLCOPT:live-cache=1000
 #EXTVLCOPT:ttl=5
-#PLAYLIST:HK & TW IPTV 2026-04-25
-# Total: 36 channels, 7 categories
+#PLAYLIST:HK & TW IPTV 2026-04-26
+# Total: 35 channels, 6 categories
 
 #EXTGRP:📡 卫视频道 (2)
 #EXTINF:-1 tvg-name="凤凰卫视" tvg-logo="https://epg.112114.xyz/logo/凤凰卫视.png" group-title="📡 卫视频道",凤凰卫视
@@ -11,17 +11,15 @@ http://php.jdshipin.com:8880/smt.php?id=phoenixtv_hd
 #EXTINF:-1 tvg-name="星空卫视" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/星空卫视.png" group-title="📡 卫视频道",星空卫视
 http://122.224.58.42:85/tsfile/live/1024_1.m3u8?key=txiptv&playlive=1&authid=0
 
-#EXTGRP:📺 TVB (9)
+#EXTGRP:📺 TVB (8)
 #EXTINF:-1 tvg-name="TVB 翡翠台" tvg-logo="https://epg.112114.xyz/logo/TVB翡翠台.png" group-title="📺 TVB",TVB 翡翠台
 http://cdn9.163189.xyz/smt1.1.php?id=jade_twn
 #EXTINF:-1 tvg-name="TVB 明珠台" tvg-logo="https://epg.112114.xyz/logo/TVB明珠台.png" group-title="📺 TVB",TVB 明珠台
 http://cdn9.163189.xyz/smt1.1.php?id=pearl_twn
 #EXTINF:-1 tvg-name="TVB J2" tvg-logo="https://epg.112114.xyz/logo/J2.png" group-title="📺 TVB",TVB J2
-http://fm1077.serv00.net/Smart.php?id=j2_twn$LR•IPV4
+http://fm1077.serv00.net/Smart.php?id=j2_twn
 #EXTINF:-1 tvg-name="華麗翡翠台" tvg-logo="https://epg.112114.xyz/logo/翡翠台.png" group-title="📺 TVB",華麗翡翠台
 http://cdn9.163189.xyz/smt1.1.php?id=Tvbjade
-#EXTINF:-1 tvg-name="凤凰香港台" tvg-logo="https://epg.112114.xyz/logo/凤凰香港.png" group-title="📺 TVB",凤凰香港台
-https://epg.pw/stream/27b49ba568efc8dcc9af6a79ec06ffd4a2e354e3e2060143be83fca695edf46e.m3u8
 #EXTINF:-1 tvg-name="TVB Plus" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/TVBPlus.png" group-title="📺 TVB",TVB Plus
 http://php.jdshipin.com/TVOD/iptv.php?id=tvbp
 #EXTINF:-1 tvg-name="无线新闻" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/无线新闻.png" group-title="📺 TVB",无线新闻
@@ -33,39 +31,37 @@ http://php.jdshipin.com/TVOD/iptv.php?id=huali2
 
 #EXTGRP:📺 ViuTV (1)
 #EXTINF:-1 tvg-name="ViuTV" tvg-logo="https://epg.112114.xyz/logo/ViuTV.png" group-title="📺 ViuTV",ViuTV
-http://php.jdshipin.com/TVOD/iptv.php?id=viutv
+http://php.jdshipin.com/TVOD/iptv.php?id=viutv2
 
-#EXTGRP:📺 RTHK (3)
+#EXTGRP:📺 RTHK (4)
+#EXTINF:-1 tvg-name="RTHK 31" tvg-logo="https://epg.112114.xyz/logo/RTHK%2031.png" group-title="📺 RTHK",RTHK 31
+https://rthklive1-lh.akamaihd.net/i/rthk31_1@167495/index_2052_av-b.m3u8
+#EXTINF:-1 tvg-name="RTHKTV31" group-title="📺 RTHK",RTHKTV31
+https://rthktv31-live.akamaized.net/hls/live/2036818/RTHKTV31/master.m3u8
 #EXTINF:-1 tvg-name="RTHK31" tvg-logo="https://epg.112114.xyz/logo/RTHK%2031.png" group-title="📺 RTHK",RTHK31
 https://www.rthk.hk/feeds/dtt/rthktv31_https.m3u8
 #EXTINF:-1 tvg-name="RTHK32" tvg-logo="https://epg.112114.xyz/logo/RTHK%2032.png" group-title="📺 RTHK",RTHK32
 https://www.rthk.hk/feeds/dtt/rthktv32_https.m3u8
-#EXTINF:-1 tvg-name="RTHKTV31" tvg-logo="https://i.imgur.com/kf818kM.png" group-title="📺 RTHK",RTHKTV31
-https://rthktv31-live.akamaized.net/hls/live/2036818/RTHKTV31/master.m3u8
 
 #EXTGRP:📺 Now TV (1)
 #EXTINF:-1 tvg-name="Now TV" tvg-logo="https://epg.112114.xyz/logo/NOW%20TV.png" group-title="📺 Now TV",Now TV
 https://uycyyuuzyh.turknet.ercdn.net/nphindgytw/nowtv/nowtv.m3u8
 
-#EXTGRP:📺 有线电视 (1)
-#EXTINF:-1 tvg-name="有线电视新闻" tvg-logo="https://gitee.com/suxuang/logo/raw/master/mylogo/有线新闻.png" group-title="📺 有线电视",有线电视新闻
-http://iptv.4666888.xyz/iptv2A.php?id=31
-
 #EXTGRP:🇹🇼 台湾 (19)
-#EXTINF:-1 tvg-name="民视新闻" tvg-logo="https://epg.112114.xyz/logo/民视.png" group-title="🇹🇼 台湾",民视新闻
-http://38.64.72.148:80/hls/modn/list/4012/chunklist0.m3u8
 #EXTINF:-1 tvg-name="TVBS 亚洲台" tvg-logo="https://epg.112114.xyz/logo/TVBS.png" group-title="🇹🇼 台湾",TVBS 亚洲台
 http://d2e1asnsl7br7b.cloudfront.net/7782e205e72f43aeb4a48ec97f66ebbe/index_5.m3u8?zshijd
+#EXTINF:-1 tvg-name="民视新闻" tvg-logo="https://epg.112114.xyz/logo/民视.png" group-title="🇹🇼 台湾",民视新闻
+http://38.64.72.148:80/hls/modn/list/4012/chunklist0.m3u8
+#EXTINF:-1 tvg-name="民视新闻台" tvg-logo="https://epg.112114.xyz/logo/民视%E6%96%B0%E8%81%9E.png" group-title="🇹🇼 台湾",民视新闻台
+http://38.64.72.148/hls/modn/list/4012/chunklist1.m3u8
 #EXTINF:-1 tvg-name="TVBS 新闻" tvg-logo="https://epg.112114.xyz/logo/TVBS%E6%96%B0%E8%81%9E.png" group-title="🇹🇼 台湾",TVBS 新闻
 http://61.221.215.25:8800/hls/9/index.m3u8
-#EXTINF:-1 tvg-name="东森新闻" tvg-logo="https://epg.112114.xyz/logo/东森%E6%96%B0%E8%81%9E.png" group-title="🇹🇼 台湾",东森新闻
-https://epg.pw/stream/d91376ed07fba14fec3772dd7bfcc266f213294ded9193f751afb3e7ca95f573.m3u8
 #EXTINF:-1 tvg-name="中视" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/中视.png" group-title="🇹🇼 台湾",中视
 http://fm1077.serv00.net/Smart.php?id=zhongshihd_twn
-#EXTINF:-1 tvg-name="民视闽南频道" tvg-logo="https://epg.112114.xyz/logo/民视.png" group-title="🇹🇼 台湾",民视闽南频道
-http://37.27.111.214:8080/live/6/hls.m3u8
 #EXTINF:-1 tvg-name="三立台灣台" tvg-logo="https://epg.112114.xyz/logo/三立.png" group-title="🇹🇼 台湾",三立台灣台
 https://epg.pw/stream/79a263b6160e568f6d3cd91417334e5b08f1638bf5990da99c65d94589d35fb7.m3u8
+#EXTINF:-1 tvg-name="民视闽南频道" tvg-logo="https://epg.112114.xyz/logo/民视.png" group-title="🇹🇼 台湾",民视闽南频道
+http://37.27.111.214:8080/live/6/hls.m3u8
 #EXTINF:-1 tvg-name="民视" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/民视.png" group-title="🇹🇼 台湾",民视
 http://fm1077.serv00.net/Smart.php?id=ftvhd_taiwan
 #EXTINF:-1 tvg-name="TVBS" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/TVBS.png" group-title="🇹🇼 台湾",TVBS
