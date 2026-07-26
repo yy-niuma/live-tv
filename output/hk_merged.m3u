@@ -2,8 +2,8 @@
 #EXTVLCOPT:network-caching=1000
 #EXTVLCOPT:live-cache=1000
 #EXTVLCOPT:ttl=5
-#PLAYLIST:HK & TW IPTV 2026-07-25
-# Total: 33 channels, 5 categories
+#PLAYLIST:HK & TW IPTV 2026-07-26
+# Total: 32 channels, 5 categories
 
 #EXTGRP:📡 卫视频道 (1)
 #EXTINF:-1 tvg-name="星空卫视" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/星空卫视.png" group-title="📡 卫视频道",星空卫视
@@ -22,8 +22,8 @@ http://cdn9.163189.xyz/smt1.1.php?id=inews_twn
 http://cdn9.163189.xyz/smt1.1.php?id=Tvbjade
 
 #EXTGRP:📺 ViuTV (1)
-#EXTINF:-1 tvg-name="ViuTV" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/ViuTV.png" group-title="📺 ViuTV",ViuTV
-http://45.192.97.170:8880/play/1199.m3u8
+#EXTINF:-1 tvg-name="ViuTV" tvg-logo="https://raw.githubusercontent.com/fanmingming/live/main/tv/Viutv.png" group-title="📺 ViuTV",ViuTV
+https://turkmedya-live.ercdn.net/tv360/tv360.m3u8
 
 #EXTGRP:📺 Now TV (5)
 #EXTINF:-1 tvg-name="NOWNewsArabic" tvg-logo="https://i.imgur.com/MfyRQCs.png" group-title="📺 Now TV",NOWNewsArabic
@@ -37,7 +37,7 @@ https://live.nowtelly.com/now_usa/live_usa/playlist.m3u8
 #EXTINF:-1 tvg-name="Now TV" tvg-logo="https://i.imgur.com/5EYjWK7.png" group-title="📺 Now TV",Now TV
 https://uycyyuuzyh.turknet.ercdn.net/nphindgytw/nowtv/nowtv.m3u8
 
-#EXTGRP:🇹🇼 台湾 (21)
+#EXTGRP:🇹🇼 台湾 (20)
 #EXTINF:-1 tvg-name="TVBS" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/TVBS.png" group-title="🇹🇼 台湾",TVBS
 http://rihou.cc:555/tv/TVBS1
 #EXTINF:-1 tvg-name="TVBS 新闻台" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/TVBS新闻台.png" group-title="🇹🇼 台湾",TVBS 新闻台
@@ -68,8 +68,6 @@ http://45.192.97.170:8880/play/1182.m3u8
 http://74.91.26.218:82/live/pts.m3u8
 #EXTINF:-1 tvg-name="公视台语台" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/公视台语台.png" group-title="🇹🇼 台湾",公视台语台
 http://74.91.26.218:82/live/ptsty.m3u8
-#EXTINF:-1 tvg-name="公视戏剧" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/公视戏剧.png" group-title="🇹🇼 台湾",公视戏剧
-http://45.192.97.170:8880/play/1265.m3u8
 #EXTINF:-1 tvg-name="东森新闻台" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/东森新闻台.png" group-title="🇹🇼 台湾",东森新闻台
 http://rihou.cc:555/tv/东森新闻
 #EXTINF:-1 tvg-name="华视" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/华视.png" group-title="🇹🇼 台湾",华视
