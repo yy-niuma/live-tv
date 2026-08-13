@@ -2,8 +2,8 @@
 #EXTVLCOPT:network-caching=1000
 #EXTVLCOPT:live-cache=1000
 #EXTVLCOPT:ttl=5
-#PLAYLIST:HK & TW IPTV 2026-08-12
-# Total: 34 channels, 8 categories
+#PLAYLIST:HK & TW IPTV 2026-08-13
+# Total: 35 channels, 8 categories
 
 #EXTGRP:📡 卫视频道 (1)
 #EXTINF:-1 tvg-name="星空卫视" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/星空卫视.png" group-title="📡 卫视频道",星空卫视
@@ -35,13 +35,15 @@ http://php.jdshipin.com:8880/TVOD/iptv.php?id=rthk32
 #EXTINF:-1 tvg-name="HOY TV" tvg-logo="https://live.fanmingming.cn/tv/HOY TV.png" group-title="📺 HOY TV",HOY TV
 http://php.jdshipin.com/TVOD/iptv.php?id=hoytv
 
-#EXTGRP:📺 Now TV (4)
+#EXTGRP:📺 Now TV (5)
 #EXTINF:-1 tvg-name="NOWNewsArabic" tvg-logo="https://i.imgur.com/MfyRQCs.png" group-title="📺 Now TV",NOWNewsArabic
 https://live.nowtelly.com/now_arabic/live/playlist.m3u8
 #EXTINF:-1 tvg-name="NOWNewsGlobal" tvg-logo="https://i.imgur.com/MfyRQCs.png" group-title="📺 Now TV",NOWNewsGlobal
 https://nowhls.wns.live/hls/stream.m3u8
 #EXTINF:-1 tvg-name="NOWNewsSpanish" tvg-logo="https://i.imgur.com/MfyRQCs.png" group-title="📺 Now TV",NOWNewsSpanish
 https://live.nowtelly.com/now_spanish/live/playlist.m3u8
+#EXTINF:-1 tvg-name="NOWNewsUSA" tvg-logo="https://i.imgur.com/MfyRQCs.png" group-title="📺 Now TV",NOWNewsUSA
+https://live.nowtelly.com/now_usa/live_usa/playlist.m3u8
 #EXTINF:-1 tvg-name="Now TV" tvg-logo="https://i.imgur.com/5EYjWK7.png" group-title="📺 Now TV",Now TV
 https://uycyyuuzyh.turknet.ercdn.net/nphindgytw/nowtv/nowtv.m3u8
 
