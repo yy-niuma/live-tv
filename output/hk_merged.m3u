@@ -2,7 +2,7 @@
 #EXTVLCOPT:network-caching=1000
 #EXTVLCOPT:live-cache=1000
 #EXTVLCOPT:ttl=5
-#PLAYLIST:HK & TW IPTV 2026-08-24
+#PLAYLIST:HK & TW IPTV 2026-08-25
 # Total: 33 channels, 8 categories
 
 #EXTGRP:📡 卫视频道 (1)
@@ -51,7 +51,7 @@ https://uycyyuuzyh.turknet.ercdn.net/nphindgytw/nowtv/nowtv.m3u8
 
 #EXTGRP:🇹🇼 台湾 (15)
 #EXTINF:-1 tvg-name="TVBS" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/TVBS.png" group-title="🇹🇼 台湾",TVBS
-https://ed6e-f4b7-af48-6d55.kylintv.tv/live/tvbshd_iphone.m3u8
+http://31.43.191.125:8080/VIP019301734188047280/7bce5254f13d/34915
 #EXTINF:-1 tvg-name="TVBS 新闻台" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/TVBS新闻台.png" group-title="🇹🇼 台湾",TVBS 新闻台
 http://61.221.215.25:8800/hls/9/index.m3u8
 #EXTINF:-1 tvg-name="中视" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/中视.png" group-title="🇹🇼 台湾",中视
