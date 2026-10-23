@@ -2,7 +2,7 @@
 #EXTVLCOPT:network-caching=1000
 #EXTVLCOPT:live-cache=1000
 #EXTVLCOPT:ttl=5
-#PLAYLIST:HK & TW IPTV 2026-10-22
+#PLAYLIST:HK & TW IPTV 2026-10-23
 # Total: 32 channels, 6 categories
 
 #EXTGRP:📺 TVB (5)
@@ -11,7 +11,7 @@ http://php.jdshipin.com/TVOD/iptv.php?id=mzt
 #EXTINF:-1 tvg-name="TVB Plus" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/TVBPlus.png" group-title="📺 TVB",TVB Plus
 http://php.jdshipin.com/TVOD/iptv.php?id=j2
 #EXTINF:-1 tvg-name="TVB 翡翠台" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/TVB翡翠台.png" group-title="📺 TVB",TVB 翡翠台
-http://php.jdshipin.com/TVOD/iptv.php?id=fct
+http://php.jdshipin.com/TVOD/iptv.php?id=fct3
 #EXTINF:-1 tvg-name="无线新闻" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/无线新闻.png" group-title="📺 TVB",无线新闻
 http://php.jdshipin.com/TVOD/iptv.php?id=wxxw
 #EXTINF:-1 tvg-name="华丽翡翠台" tvg-logo="https://live.fanmingming.cn/tv/华丽翡翠台.png" group-title="📺 TVB",华丽翡翠台
@@ -47,7 +47,7 @@ http://zby.lskk.top/cdnlive.php?mode=play&id=ccc494fbbbf9a526ffe5dfa40aa86e1d&to
 #EXTINF:-1 tvg-name="中视菁采台" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/中视菁采台.png" group-title="🇹🇼 台湾",中视菁采台
 http://zby.lskk.top/cdnlive.php?mode=play&id=becfc1b619191c8f324907067c1acd13&token=wUJLMUpsYJOdEdkpd5OwyC27t69vzy3W
 #EXTINF:-1 tvg-name="民视" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/民视.png" group-title="🇹🇼 台湾",民视
-http://zby.lskk.top/cdnlive.php?mode=play&id=1f5cb7f8687ab60efbdb4cb4190d355b&token=wUJLMUpsYJOdEdkpd5OwyC27t69vzy3W
+http://183.239.108.37:1698/hls/133/index.m3u8
 #EXTINF:-1 tvg-name="民视台湾台" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/民视台湾台.png" group-title="🇹🇼 台湾",民视台湾台
 http://zby.lskk.top/cdnlive.php?mode=play&id=33ff2e131e511e896174ecbd0f45bed9&token=wUJLMUpsYJOdEdkpd5OwyC27t69vzy3W
 #EXTINF:-1 tvg-name="民视影剧台" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/民视影剧台.png" group-title="🇹🇼 台湾",民视影剧台
@@ -57,7 +57,7 @@ https://raw.githubusercontent.com/ChiSheng9/iptv/master/TV17.m3u8
 #EXTINF:-1 tvg-name="民视旅游台" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/民视旅游台.png" group-title="🇹🇼 台湾",民视旅游台
 http://zby.lskk.top/cdnlive.php?mode=play&id=73c20b6f33eefacf760556a87753bb24&token=wUJLMUpsYJOdEdkpd5OwyC27t69vzy3W
 #EXTINF:-1 tvg-name="民视第一台" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/民视第一台.png" group-title="🇹🇼 台湾",民视第一台
-http://zby.lskk.top/cdnlive.php?mode=play&id=b76755690d6750fa94321fcbfed67464&token=wUJLMUpsYJOdEdkpd5OwyC27t69vzy3W
+http://74.91.26.218:82/live/ftvdy.m3u8
 #EXTINF:-1 tvg-name="民视综艺台" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/民视综艺台.png" group-title="🇹🇼 台湾",民视综艺台
 http://zby.lskk.top/cdnlive.php?mode=play&id=04079f48cbe86ce355ebdd255a715460&token=wUJLMUpsYJOdEdkpd5OwyC27t69vzy3W
 #EXTINF:-1 tvg-name="公视" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/公视.png" group-title="🇹🇼 台湾",公视
@@ -71,7 +71,7 @@ https://raw.githubusercontent.com/ChiSheng9/iptv/master/TV12.m3u8
 #EXTINF:-1 tvg-name="华视新闻" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/华视新闻.png" group-title="🇹🇼 台湾",华视新闻
 http://zby.lskk.top/cdnlive.php?mode=play&id=f33de20f378bbcb4bbd1cc681a50458b&token=wUJLMUpsYJOdEdkpd5OwyC27t69vzy3W
 #EXTINF:-1 tvg-name="台视" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/台视.png" group-title="🇹🇼 台湾",台视
-http://31.43.191.125:8080/restream/restream/34879
+http://38.64.72.148/hls/modn/list/4013/chunklist0.m3u8
 #EXTINF:-1 tvg-name="台视新闻" tvg-logo="https://live.fanmingming.cn/tv/台视新闻.png" group-title="🇹🇼 台湾",台视新闻
 http://38.64.72.148/hls/modn/list/4013/chunklist1.m3u8
 
