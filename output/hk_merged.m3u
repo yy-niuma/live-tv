@@ -2,7 +2,7 @@
 #EXTVLCOPT:network-caching=1000
 #EXTVLCOPT:live-cache=1000
 #EXTVLCOPT:ttl=5
-#PLAYLIST:HK & TW IPTV 2026-10-23
+#PLAYLIST:HK & TW IPTV 2026-10-24
 # Total: 32 channels, 6 categories
 
 #EXTGRP:📺 TVB (5)
@@ -57,7 +57,7 @@ https://raw.githubusercontent.com/ChiSheng9/iptv/master/TV17.m3u8
 #EXTINF:-1 tvg-name="民视旅游台" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/民视旅游台.png" group-title="🇹🇼 台湾",民视旅游台
 http://zby.lskk.top/cdnlive.php?mode=play&id=73c20b6f33eefacf760556a87753bb24&token=wUJLMUpsYJOdEdkpd5OwyC27t69vzy3W
 #EXTINF:-1 tvg-name="民视第一台" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/民视第一台.png" group-title="🇹🇼 台湾",民视第一台
-http://74.91.26.218:82/live/ftvdy.m3u8
+http://zby.lskk.top/cdnlive.php?mode=play&id=b76755690d6750fa94321fcbfed67464&token=wUJLMUpsYJOdEdkpd5OwyC27t69vzy3W
 #EXTINF:-1 tvg-name="民视综艺台" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/民视综艺台.png" group-title="🇹🇼 台湾",民视综艺台
 http://zby.lskk.top/cdnlive.php?mode=play&id=04079f48cbe86ce355ebdd255a715460&token=wUJLMUpsYJOdEdkpd5OwyC27t69vzy3W
 #EXTINF:-1 tvg-name="公视" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/公视.png" group-title="🇹🇼 台湾",公视
