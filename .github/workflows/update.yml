@@ -17,16 +17,87 @@ on:
         required: false
         default: "false"
         type: string
+  # PR 门禁：只跑 check job，update job 用 job 级 if 挡掉（见 docs/ci.md §1）
+  pull_request:
+
+# 同一 ref 上的跑批串行化。cancel-in-progress 必须是 false：
+# update job 会 git push，半路取消会留下"提交了但 artifact 没上传"的半截运行，
+# 而每日定时任务本来就只是排队，不需要抢占。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   PYTHON_VERSION: "3.11"
   FETCH_TIMEOUT: ${{ inputs.fetch_timeout || '300' }}
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # 门禁：静态检查（阻断）+ 类型检查（提示）+ 测试（阻断）
+  # ---------------------------------------------------------------------------
+  check:
+    name: 静态检查 → 类型 → 测试
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # 只读：check 从不写仓库。权限只给必需的，不放全局（docs/ci.md §2）
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          # 缓存键来自 requirements*.txt 的哈希，锁定文件变了就换缓存
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: 安装依赖（运行时 + 开发）
+        # 两个文件都装：tests/ 会 import src/，而 src/ 依赖 aiohttp / yaml
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: ruff（阻断门禁）
+        # 配置在 pyproject.toml：select = E,F,W,I / line-length 88 / py311
+        # per-file-ignores 是逐文件记账的临时豁免，清账计划见 docs/ci.md §6
+        run: |
+          ruff --version
+          ruff check src/ scripts/
+
+      - name: mypy（提示，不阻断）
+        # continue-on-error 是刻意决定，不是偷懒：
+        # 现网 19 个类型错误全部要改 src/ 才能修，而本 lane 不许改 src/。
+        # 修完这些错误、把 src/ 纳入可改范围后，删掉下面这行即可变门禁（docs/ci.md §4）
+        continue-on-error: true
+        run: |
+          mypy --version
+          mypy src/
+
+      - name: pytest（阻断门禁）
+        # 唯一 runner：不走 -x / --maxfail，要看到全量失败分布
+        run: pytest tests/ -q
+
+  # ---------------------------------------------------------------------------
+  # 生产：抓取 → 验证 → 生成 → 保险丝 → 推送
+  # ---------------------------------------------------------------------------
   update:
     name: 抓取 → 验证 → 生成 → 推送
+    # PR 上不跑：这一步会 git push origin HEAD:main
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    # 提交产物需要写权限；作用域只到本 job，不放宽全局默认
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -39,6 +110,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements.txt
 
       - name: 安装依赖
         run: |
@@ -55,24 +128,20 @@ jobs:
             --output ./output
           echo "::endgroup::"
 
-      - name: 生成播放列表
-        run: |
-          echo "::group::生成阶段"
-          python -u -m src.main \
-            --skip-fetch \
-            --output ./output
-          echo "::endgroup::"
+      - name: 产物体检（保险丝）
+        # 频道总数 < 3000 或港澳台为 0 时非零退出，让 CI 变红而不是静默提交空产物
+        run: python scripts/check_output.py output/stats.json
 
       - name: 检查是否有更新
         id: changes
         run: |
-          if git diff --stat output/ | grep -q "0 files changed"; then
-            echo "changed=false" >> $GITHUB_OUTPUT
-            echo "📭 output/ 无变化，跳过提交"
-          else
-            echo "changed=true" >> $GITHUB_OUTPUT
+          if [ -n "$(git status --porcelain output/)" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
             echo "📝 output/ 有变化，将提交"
-            git diff --stat output/
+            git status --porcelain output/
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "📭 output/ 无变化，跳过提交"
           fi
 
       - name: 提交并推送

@@ -1,0 +1,58 @@
+version: 2
+updates:
+  # ---------------------------------------------------------------------------
+  # Python 依赖
+  # 扫描目录 / 下所有 requirements*.txt：requirements.txt（运行时闭包）与
+  # requirements-dev.txt（开发闭包）。两个文件都是 == 精确锁定，所以 dependabot
+  # 提的 PR 就是「把某个包从 x.y.z 提到 x.y.w」，可以直接审 diff。
+  # requirements.in / requirements-dev.in 只写范围，不参与 dependabot 更新。
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "python"
+    # 分组：运行时依赖与工具链分开提，避免一个 PR 同时动 aiohttp 和 ruff
+    # （前者要看行为，后者只看报告变化，审查成本完全不同）。
+    # 只对 minor/patch 分组：大版本（aiohttp 4 / pytest 10）一律单独出一个 PR，
+    # 由人判断，不该被「顺手升级」带走。
+    groups:
+      runtime:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+      dev-tooling:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ---------------------------------------------------------------------------
+  # GitHub Actions
+  # update.yml 里用到 checkout@v4 / setup-python@v5 / upload-artifact@v4，
+  # 都是 major tag 浮动，没人管就会一直停在旧版本上，直到某天 runner 不再支持。
+  # ---------------------------------------------------------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
