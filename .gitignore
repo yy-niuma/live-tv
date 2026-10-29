@@ -13,3 +13,6 @@ build/
 dist/
 
 .DS_Store
+
+# 本地审计产出（不入库）
+reports/
