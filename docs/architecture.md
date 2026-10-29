@@ -191,7 +191,15 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 
 - `CATEGORY_ORDER`（65 个分类的固定顺序，`len(CATEGORY_ORDER)` 实测 65）决定输出顺序；`KNOWN_CATEGORIES` 是它的 `frozenset` 视图，供生成端做一致性断言。未列出的分类排最后并按名称排序。
   **其中 12 个是「预留但 categorize() 当前不产出」的分组**（`🇯🇵 日本` / `🇰🇷 韩国` / `🌏 亚洲（东南亚）` / `🇮🇳 印度` / `🌏 亚洲（其他）` / `🌍 欧洲` / `🇺🇸 北美` / `🌎 拉丁美洲` / `🌍 中东` / `🌍 非洲` / `🌏 大洋洲` / `📺 其他`），原样保留是为了不破坏旧产物排序与 `tests/test_generator.py` 的 `sort_key` 断言。
-  ⚠️ 别把 `🇲🇾 马来西亚` 与 `📺 有线电视` 算进预留：它们在 13,470 条语料上确实 0 命中，但真实产物里有（`all_merged` 4 条 / `hk_merged` 1 条），属于「语料没覆盖到」而非「不产出」。
+  ⚠️ 两个容易搞混的点（2026-10-29 实测更正）：
+
+  - `🇲🇾 马来西亚` **不是**预留项，它在 `CATEGORY_ORDER` 的在用段里（`generator.py` 第 43 行），语料上实测产出 **4 条**（`AstroAOD` / `AstroAEC` / `AstroQJ` / `Astro欢喜台`）。
+    判它的不是频道名，是 **logo 域名里的 `Astro`**（`LOGO_REGION_PATTERNS`）。我最初用
+    `categorize(name, group)` 两个参数测，漏了 `logo`，把它误报成「从不产出」—— 而生产路径
+    `src/grouper.py:92` 是 `categorize(name, group, logo)` 三参数。**测分类必须传 logo。**
+  - `📺 有线电视` 也不在预留块里，语料上 0 命中，但它**能**产出：
+    `categorize("有线电视新闻", "")` → `📺 有线电视`，真实产物 `all_merged` / `hk_merged` 各有 1 条。
+    属「语料没覆盖到」，不是「产不出来」。
 - `is_clean_name()` 丢脏名：排除长度 < 2、含浏览器标识（`chrome/`、`safari`、`edg/`、`webkit` 等）、名字里带 URL 残留的条目。
 - `build_extinf()` 输出 `#EXTINF:-1 tvg-name="…" tvg-logo="…" group-title="…",名字`（缺 logo 时用 `get_logo_fuzzy()` 兜底）。
 - `generate_hk_and_all()`：先 `is_clean_name` 过滤，再用 `is_hk_region` 切 hk 子集，all 分支 `[:100]` 截断并写 `# ... and N more`。

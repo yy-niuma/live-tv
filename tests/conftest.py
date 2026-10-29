@@ -37,10 +37,15 @@ def classify():
         cat = categorize(name, group, logo)
         hk  = is_hk_region(name, group, cat)
     这里复刻同一调用关系，避免测试和生产走两条不同路径。
+
+    ⚠️ `logo` 不能省：`LOGO_REGION_PATTERNS` 靠 logo URL 里的片段判地区
+    （`Astro` → 🇲🇾 马来西亚、`epg.112114.xyz/logo/TVB` → 📺 TVB、
+    `gitee.com/suxuang` → 🇨🇳 中国源）。参数默认空串只为兼容既有只传
+    (name, group) 的用例，不代表生产可以不传。
     """
 
-    def _classify(name: str, group: str = "") -> tuple[str, bool]:
-        cat = categorize(name, group)
+    def _classify(name: str, group: str = "", logo: str = "") -> tuple[str, bool]:
+        cat = categorize(name, group, logo)
         return cat, is_hk_region(name, group, cat)
 
     return _classify

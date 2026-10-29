@@ -327,3 +327,68 @@ def test_group_only_english_mapping_does_not_leak_hk_region(classify):
     for group in ("Movies", "Kids", "News", "Sports", "Documentary"):
         _, hk = classify("Zeta TV", group)
         assert hk is False, f"group={group} 被判成港台频道"
+
+# ---------------------------------------------------------------- logo 驱动规则
+# 2026-10-29 追加：测分类时漏传 logo 会把「靠 logo 判地区」的频道全判错。
+# 起因是一次错误的统计脚本 —— 调 `categorize(name, group)` 两参数，
+# 结论是「🇲🇾 马来西亚 从不产出」，实际是 4 条全被漏掉。
+# 这组用例把「logo 必须参与判定」钉成契约。
+
+
+@pytest.mark.parametrize(
+    "name,logo,expected",
+    [
+        # Astro 系列：名字里没有国名，靠 logo 路径 `Astro Xxx.png` 命中 'Astro'
+        (
+            "AstroAEC",
+            "https://live.fanmingming.cn/tv/Astro AEC.png",
+            "🇲🇾 马来西亚",
+        ),
+        (
+            "AstroAOD",
+            "https://live.fanmingming.cn/tv/Astro AOD.png",
+            "🇲🇾 马来西亚",
+        ),
+        (
+            "AstroQJ",
+            "https://live.fanmingming.cn/tv/Astro QJ.png",
+            "🇲🇾 马来西亚",
+        ),
+        (
+            "Astro欢喜台",
+            "https://live.fanmingming.cn/tv/Astro 欢喜台.png",
+            "🇲🇾 马来西亚",
+        ),
+        # epg.112114.xyz 的 TVB logo
+        ("翡翠台", "https://epg.112114.xyz/logo/翡翠台.png", "📺 TVB"),
+        # gitee.com/suxuang 的国内源
+        (
+            "SomeUnknownChannel",
+            "https://gitee.com/suxuang/tv/raw/master/logo/x.png",
+            "🇨🇳 中国源",
+        ),
+    ],
+)
+def test_logo_pattern_drives_region(classify, name, logo, expected):
+    """logo 命中 LOGO_REGION_PATTERNS 时，地区判定必须生效。"""
+    actual, _ = classify(name, "港澳台频道", logo)
+    assert actual == expected, (
+        f"{name!r} 带 logo={logo!r} 应判 {expected!r}，实际 {actual!r}。"
+        f"若这里失败，说明 LOGO_REGION_PATTERNS 被改动或 categorize() 不再接收 logo。"
+    )
+
+
+def test_logo_is_required_for_astro_channels(classify):
+    """同一频道：不传 logo 判不出来，传了才判对 —— 记录这个依赖本身。
+
+    这条不是「期望行为」，而是把「测分类必须传 logo」这个坑钉在测试里，
+    防止再有人（包括我自己）用两参数口径统计后得出错误结论。
+    """
+    logo = "https://live.fanmingming.cn/tv/Astro AEC.png"
+    without, _ = classify("AstroAEC", "港澳台频道")
+    with_logo, _ = classify("AstroAEC", "港澳台频道", logo)
+    assert without != with_logo, (
+        "如果这条开始失败，说明 Astro 已能被频道名单独识别，"
+        "可以删掉本用例并简化 LOGO_REGION_PATTERNS 的说明。"
+    )
+    assert with_logo == "🇲🇾 马来西亚"
