@@ -29,28 +29,25 @@ def test_spaced_tvb_english_name_is_hk_region(classify, name):
     assert hk is True
 
 
+# 回归护栏：HOY 分支曾用 r"\bhoy\b"，而 \b 在 CJK / 数字边界不成立（Python 的 \w 含 CJK），
+# 于是 HOY资讯台 / HOY78 / HOYInfotainment 三个真频道全部漏掉、落进「🌐 国际」兜底。
+# 现在用 r"(?<![a-z])hoy"（只做前置否定），三个都恢复，且 iHOY爱历史 仍被挡在外面。
 @pytest.mark.parametrize(
     "name",
-    [
-        "HOY 77台",
-        pytest.param(
-            "HOY资讯台",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason=(
-                    "现象：'HOY资讯台' 被判 '🌐 国际'、is_hk_region 为 False，而 'HOY 77台' / 'HOY' 都正确。"
-                    "根因：类型词判定（「资讯」命中 📰 新闻财经 品牌词）先于港区品牌判定执行，"
-                    "'HOY资讯台' 在走到 HOY 品牌分支之前就被 🌐 国际 兜底吃掉。"
-                    "修法：把本地品牌判定（HOY/TVB/RTHK/ViuTV/Now）提到类型词判定之前；修好后移除本标记。"
-                ),
-            ),
-        ),
-    ],
+    ["HOY", "HOY TV", "HOYTV", "HOY 77台", "HOY78", "HOY资讯台", "HOYInfotainment"],
 )
-def test_hoy_bare_marker_is_hk_region(classify, name):
+def test_hoy_family_is_hk_region(classify, name):
     cat, hk = classify(name)
     assert cat == "📺 HOY TV"
     assert hk is True
+
+
+@pytest.mark.parametrize("name", ["iHOY爱历史"])
+def test_ihoy_history_channel_is_not_hoy_tv(classify, name):
+    """iHOY 爱历史 是历史纪录片频道，名字里带 hoy 但不是 HOY TV —— 不能被前置否定放过。"""
+    cat, hk = classify(name)
+    assert cat != "📺 HOY TV"
+    assert hk is False
 
 
 @pytest.mark.parametrize("name", ["Macau TV", "MACAU TV"])

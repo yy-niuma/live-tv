@@ -190,11 +190,58 @@ python scripts/eval_categorize.py
 
 缺陷清单见 [`docs/categorize-bug-analysis.md`](docs/categorize-bug-analysis.md)，重构方案、残留问题与后续 TODO 见 [`docs/categorize-improvement-proposal.md`](docs/categorize-improvement-proposal.md)。
 
+### 第二遍修正：`\b` 在 CJK / 数字边界失效（同类缺陷的批量清理）
+
+重构第一版把 `\bxxx\b` 当作词边界通解，但 **Python 的 `\w` 含 CJK，所以 `\b` 在「拉丁字母 + 中文」和「字母 + 数字」之间不成立**。
+重构里已经为央视用了 `(?![a-z])` 而不是 `\b`，却没把这个结论推广到其他分支，于是留下同一类缺陷。
+
+实测方式：从 `corpus.tsv`（13,470 条真实频道）里筛出「含 target 但 `\b` 尾部断言失败」的条目。
+
+| target | 被 `\b` 击落 | 真实频道样例 | 处理 |
+|---|---:|---|---|
+| `hoy` | 3 | `HOY资讯台` / `HOY78` / `HOYInfotainment` | ✅ 改 `(?<![a-z])hoy` |
+| `pts` | 1 | `PTS3`（公视 3 台） | ✅ 改 `(?<![a-z])pts(?![a-z])` |
+| `trt` | 3 | `TRT1` / `TRT2` / `TRT3` | ✅ 改 `(?<![a-z])trt(?![a-z])` |
+| `ttv` / `ftv` / `cna` | 各 0~3 | `TTVNews` / `FTVNews` / `CNAInternational` | 改了正则，但语料里这几条仍被更早分支命中，**实测 0 变动** |
+| `cnn` / `voa` | 2 / 1 | `A2CNN` / `VOA美国之音` | 改了正则，**实测 0 变动**（均被更早分支吃掉） |
+| `atv` / `tv5` / `now` / `nhk` / `dw` | 7 / 19 / 10 / 5 / 6 | `ATVAlanya`（土耳其台）/ `TV52` / `Now14` / `NHKWorld` / `DWEnglish` | ❌ **不动**：改宽会把土耳其 ATV、阿尔巴尼亚 TV52、印度 Now 误收 |
+
+第二遍改动前后对比（`HEAD` vs 工作区，同一份 13,470 条语料）：
+
+```
+总变动 7 条 / 13470
+  🌐 国际      -> 📺 HOY TV     3   (HOY78 / HOYInfotainment / HOY资讯台)
+  🌐 国际      -> 🇹🇼 台湾        1   (PTS3)
+  🌐 国际      -> 🌐 国际频道     3   (TRT1 / TRT2 / TRT3，从兜底进宽桶)
+
+hk 覆盖：141 -> 145，丢失 0，新增 4
+```
+
+`HOYInfotainment` / `PTS3` / `TRT1-3` 都从 `🌐 国际` 兜底桶里被捞了出来，且**没有一条被打到别处**。
+`iHOY爱历史`（历史纪录片频道，名字带 hoy 但不是 HOY TV）被前置否定 `(?<![a-z])` 正确挡在外面，已加负向测试钉住。
+
+### MTV 副作用（实测，接受不修）
+
+重构把音乐桶的裸 `mtv` 换成 `\bmtv(?![a-z])`。实测 189 条含 `mtv` 的频道里：
+
+- `🎵 音乐频道` 31 条 —— `MTV` / `MTVLive` / `MTVRocks` 之外的真音乐台
+- `🎭 综艺频道` 55 条 —— 主要是 **group 字段本身就是 `Entertainment`** 的 MTV 真人秀（`MTVCatfish` / `MTVTeenMom` / `MTVRidiculousness` / `MTVTheHills` / `MTVJerseyShore` / `MTVDating`）
+- `🌐 国际` 88 条 —— 绝大多数根本不是 MTV，是 `GEMTV` / `MetaFilmTV` / `AdriftTV` 这类名字里恰好含 `mtv` 的地方台，**边界修复正是为了把它们赶出去**
+
+判断：55 条落综艺里，真人秀落综艺在语义上是对的；只有 `MTVRocks` / `MTVCLASSICS` 这两类纯音乐台落综艺是遗憾，
+但它们的数据源 group 就是 `Entertainment`，跟随 group 是既定策略。**这里不做名字级特例**，登记为已知取舍。
+
 **已知残留**（如实登记，未修）：
 - `DetetivesMedicos` 仍判 `🌐 国际`，期望 `📺 纪录片`（评测集里唯一不达标项，脚本因此退出码 1）。
 - `ATV`（亚洲电视，香港）分类为 `📡 卫视频道` 且 `is_hk_region('ATV')=False` → 不进 `hk_merged.m3u`。
-- `HOY资讯台` 被判 `🌐 国际`（类型词判定先于品牌判定），已在 `tests/test_known_defects.py` 用 xfail 钉住。
-- `CNN` 归 `🌐 国际频道` 但 `BBC World News` 归 `📰 新闻财经` —— 国际新闻品牌规则目前只覆盖 BBC。
+- ~~`HOY资讯台` 被判 `🌐 国际`~~ —— **已修**，但这条要单独记：它本来**不是**既有缺陷，
+  是本次重构用 `r"\bhoy\b"` 引入的**新回归**（`\b` 在 CJK / 数字边界不成立，Python 的 `\w` 含 CJK，
+  于是 `HOY资讯台` / `HOY78` / `HOYInfotainment` 三个真频道一起漏掉）。改回 `r"(?<![a-z])hoy"` 后三条全部恢复，
+  `iHOY爱历史`（历史纪录片频道）仍正确排除。细节见下方「分组逻辑」里的更正说明。
+- `CNNInternational`（无空格连写）落 `🌐 国际频道`，而 `CNN International`（带空格）落 `📰 新闻财经`。
+  新闻块**有** `cnn` 规则，所以不是「只覆盖 BBC」；实测把 `\bcnn\b` 改成 `(?<![a-z])cnn(?![a-z])` 后
+  连写形态**仍然**落 `🌐 国际频道`，说明它更早被「国际频道」宽桶命中（很可能 `international` 关键词）。
+  **确切分支未定位，未修**。
 
 ## 已知限制与缺陷
 
@@ -208,7 +255,7 @@ python scripts/eval_categorize.py
 6. **验证器把异常当成「有效」**：`src/validator.py:27` 的 `if valid` 对 `asyncio.gather(return_exceptions=True)` 返回的异常对象恒为真。实测 `http://[::1/list.m3u8`（`urlparse` 抛 `ValueError`）仍被保留。
 7. **`strip_noise` 删除所有内部空格**：`src/group/normalize.py:84` 把 `\s+` 替换成空串，实测 `strip_noise("TVB 翡翠台")` → `"TVB翡翠台"`，下游 `logo_map` 只能靠额外分支打补丁。
 8. ~~**分类与港澳台过滤判定不一致**~~ —— **已在 2026-10-29 的分组逻辑重构中修复**。原缺陷是 `categorizer.py` 的 `hk_exact`/`tw_exact`/`mo_exact` 三张表与 `categorize()` 各自维护一套关键词，其中若干正则写成双反斜杠（如 `\\bmacau\\b`，实际匹配字面反斜杠 + `b`）永不命中，于是 `categorize("Macau TV")` = `🇲🇴 澳门` 而 `is_hk_region("Macau TV")` = `False`。现在两者共用同一套 `HK_TW_MO_RULES` + `_region_category()`，实测 `is_hk_region("Macau TV")` → `True`、`is_hk_region("TTV")` → `True`。**残留**：`is_hk_region()` 的 `cat` 参数仍可绕过地区判定，调用方需保持一致（`src/generator.py:136` 已按生产路径传入 `cat`）。
-9. **测试覆盖**：`3020583` 起仓库里有 `tests/`（7 个文件）。分组逻辑重构后 `python -m pytest` → **`298 passed, 8 xfailed`**（合计 306 例，1.0s）；重构前是 `283 passed, 23 xfailed` —— 差额 15 条就是本次真正修好的缺陷（xfail 守卫按 `strict=True` 报 XPASS，删掉标记后转为正向回归测试）。此前 189 个历史提交里没有任何测试（`git rev-list --count 3020583^` → 189）。剩下 8 个 xfail 是**刻意固化的、仍然坏着的**已知缺陷（`tests/test_known_defects.py`），修好后去掉标记即变成契约测试。
+9. **测试覆盖**：`3020583` 起仓库里有 `tests/`（7 个文件）。分组逻辑重构后 `python -m pytest` → **`305 passed, 7 xfailed`**（合计 312 例，0.9s）；重构前是 `283 passed, 23 xfailed` —— 差额主要是本次真正修好的缺陷（xfail 守卫按 `strict=True` 报 XPASS，删掉标记后转为正向回归测试）。此前 189 个历史提交里没有任何测试（`git rev-list --count 3020583^` → 189）。剩下 7 个 xfail 是**刻意固化的、仍然坏着的**已知缺陷（`tests/test_known_defects.py`），修好后去掉标记即变成契约测试。
 10. **可安装性**：`python -m src.main` 是唯一入口，**必须在仓库根目录执行**，否则 `ModuleNotFoundError: No module named 'src'`（包名就是 `src`）。`pyproject.toml`（`7ff4be1`）只声明 `requires-python = ">=3.11"` 与 ruff/mypy 配置，**有意不写 `[build-system]`**，所以仍然不能 `pip install -e .`（原因见该文件开头的注释）。
 11. **分组很慢**：`categorizer.py` 里几百个正则都以字符串形式传给 `re.search`，`re` 的 512 条内部缓存被反复冲掉，时间主要花在重新编译正则上（审计报告 `audit-c-engineering.md` §3.4 的 cProfile 实测：1,379 频道 40.2s，预编译后 1.0s，约 40×。**该 40× 是那份报告的实测值，本文档更新时未复测**）。
 12. **数字每天漂移**：同一份代码在不同日期产出量差别很大。仓库快照是 `stats 8,371 / all 1,164 / hk 33`；2026-10-29 我实测的一次全新运行（`--no-cache --skip-validation`，抓到手 16,901 频道、同名合并后 12,505）得到 `stats 12,505 / 53 组`、`all_merged` 1,378 条、`hk_merged` 58 条。**任何写死的数字都只是当日快照**，引用前请自己跑 `grep -c`。
@@ -235,7 +282,7 @@ head -6 output/all_merged.m3u | tail -1                  # # Total: 8056 channel
 python3 -c "import yaml;d=yaml.safe_load(open('config/sources.yaml'));print(len(d['sources']))"  # 20
 python -m src.main --help                                # 参数表（6 个选项）
 .venv/bin/python -m ruff check src scripts               # All checks passed!
-.venv/bin/python -m pytest                              # 298 passed, 8 xfailed
+.venv/bin/python -m pytest                              # 305 passed, 7 xfailed
 .venv/bin/python scripts/eval_categorize.py             # 50/51（退出码 1，见下）
 ```
 

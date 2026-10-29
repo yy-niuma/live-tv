@@ -111,7 +111,9 @@ HK_TW_MO_RULES = [
         r"台视", r"台視", r"中视", r"中視", r"民视", r"民視",
         r"东森", r"東森", r"三立", r"华视", r"華視",
         r"大爱", r"大愛", r"公视", r"公視", r"非凡", r"中天",
-        r"\bttv\b", r"\bftv\b", r"\bpts\b", r"\bcna\b",
+        # (?<![a-z])…(?![a-z]) 而非 \b…\b：\b 在 CJK/数字边界不成立（PTS3 会漏）
+        r"(?<![a-z])ttv(?![a-z])", r"(?<![a-z])ftv(?![a-z])",
+        r"(?<![a-z])pts(?![a-z])", r"(?<![a-z])cna(?![a-z])",
         r"台湾", r"台灣",
     ]),
     ("📺 TVB", [
@@ -125,7 +127,10 @@ HK_TW_MO_RULES = [
     ]),
     ("📺 ViuTV", [r"viutv", r"viu\s*tv", r"\bviu\s*6\b", r"\bviu6\b"]),
     ("📺 RTHK", [r"rthk", r"港台電視", r"港台电视", r"香港電台", r"香港电台"]),
-    ("📺 HOY TV", [r"hoy\s*tv", r"\bhoytv\b", r"\bhoy\b"]),
+    # 只做「前置否定」不做后置断言：\bhoy\b 在 CJK/数字后不成立（\w 含 CJK），
+    # 会把 HOY资讯台 / HOY78 / HOYInfotainment 全部漏掉 —— 这三个都是真 HOY TV 频道。
+    # 前置 (?<![a-z]) 用来挡 iHOY爱历史（历史纪录片频道，不是 HOY TV）。
+    ("📺 HOY TV", [r"hoy\s*tv", r"hoytv", r"(?<![a-z])hoy"]),
     ("📺 Now TV", [
         # 繁体字形：財經/新聞 必须与简体并列（历史 bug：只写简体导致 Now財經 落兜底）
         r"now\s*tv", r"nowtv", r"now直播",
@@ -581,7 +586,7 @@ def categorize(name: str, group: str, logo: str = "") -> str:
         r"\bnhk\b",
         # tbs 已移除：TBS（Turner）是美国综合娱乐网，不该被「国际频道」宽桶捕获
         r"france 24", r"france24",
-        r"\bdw\b", r"\btrt\b", r"\btv5\b", r"tv5monde",
+        r"\bdw\b", r"(?<![a-z])trt(?![a-z])", r"\btv5\b", r"tv5monde",
         # tv5 加边界：VTV5TayNamBo / XinjiangTV5 / SuperTV55 不再被误判
         r"澳大利亚", r"澳洲电视",
         r"德国电视", r"德国之声",
@@ -600,12 +605,14 @@ def categorize(name: str, group: str, logo: str = "") -> str:
         r"bloomberg", r"cnbc",
         r"财经", r"金融", r"证券",
         r"新闻频道", r"新闻台",
-        r"\bcnn\b", r"bbc news",
+        # \bcnn\b 漏掉 CNNInternational（"CNN"+"I" 之间无 \b）—— 这正是历史上
+        # 「CNN 落 🌐 国际频道、BBC World News 落 📰 新闻财经」不一致的根因。
+        r"(?<![a-z])cnn(?![a-z])", r"(?<![a-z])bbc[\s\-]*news",
         r"半岛新闻", r"半岛电视台",
         r"euronews",
         r"香港新闻", r"香港财经",
         r"凤凰财经", r"凤凰新闻",
-        r"\bvoa\b", r"美国之音",
+        r"(?<![a-z])voa(?![a-z])", r"美国之音",
     ]
     if _match(name_lower, group_lower, news_kw):
         return "📰 新闻财经"

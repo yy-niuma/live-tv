@@ -40,13 +40,16 @@
 | `🇨🇳 中国源` 桶大小 | 0 | 272 |
 | `all_merged.m3u` #EXTINF（同日全新运行） | 1,378 | **1,702** |
 | `hk_merged.m3u` #EXTINF（同日全新运行） | 58 | **103** |
-| `python -m pytest` | 283 passed / 23 xfailed | **298 passed / 8 xfailed** |
+| `python -m pytest` | 283 passed / 23 xfailed | **305 passed / 7 xfailed** |
 
 ### 已知残留（未修，如实登记）
 
 - `DetetivesMedicos` 仍判 `🌐 国际`，期望 `📺 纪录片`（评测集唯一不达标项，故 `eval_categorize.py` 退出码 1）。
 - `ATV`（亚洲电视，香港）分类 `📡 卫视频道`、`is_hk_region('ATV')=False` → 不进 `hk_merged.m3u`。
-- `HOY资讯台` 被判 `🌐 国际`（类型词判定先于品牌判定），`tests/test_known_defects.py` 用实例级 xfail 钉住。
+- ~~`HOY资讯台` 被判 `🌐 国际`~~ —— 已修。**更正：这是本版重构自己引入的回归，不是既有缺陷。**
+  原 `r"\bhoy\b"` 在 CJK / 数字边界不成立（`\w` 含 CJK），连 `HOY78`、`HOYInfotainment` 一起击落；
+  改 `r"(?<![a-z])hoy"` 后三条全恢复，`iHOY爱历史` 仍排除。同步把原来的错误 xfail 说明
+  （「类型词判定先于品牌判定」）删掉，换成 7 条正向回归护栏。
 - `CNN` 归 `🌐 国际频道` 但 `BBC World News` 归 `📰 新闻财经` —— 国际新闻品牌规则目前只覆盖 BBC。
 - `CATEGORY_ORDER` 里仍有 11 个「预留但 `categorize()` 从不产出」的分类（`🇯🇵 日本`…`🌏 大洋洲`、`📺 其他`），保留是为不破坏 `sort_key` 断言，见 `tests/test_generator.py`。
 
@@ -65,7 +68,7 @@
 | `871e32d` | `fix(主流程)` | 失败写 stderr + `raise SystemExit(1)`，退出码由 0 变 1（CI 终于能感知失败） |
 | `5221621` | `ci` | 拆 `check`（ruff + mypy + pytest，10 min）/ `update`（抓取→生成→产物体检→推送，45 min）；显式 `permissions` 与 `concurrency`；变更检测从 `git diff --stat \| grep "0 files changed"`（永假）改为 `git status --porcelain`；接入 dependabot；新增 `scripts/check_output.py` 产物保险丝 |
 | `7ff4be1` | `build(依赖)` | `requirements.txt` 从 4 条下界改为 11 个精确 pin 的传递闭包，删掉 2 个零引用依赖；新增 dev 依赖与 `pyproject.toml`（`requires-python = ">=3.11"`、ruff/mypy 配置）、`pytest.ini`；`.gitignore` 补缓存目录 |
-| `3020583` | `test` | 306 例回归基线（当时 `283 passed, 23 xfailed`，1.4s；分组重构后为 `298 passed, 8 xfailed`），含 golden 分类表与「已知缺陷契约」xfail |
+| `3020583` | `test` | 306 例回归基线（当时 `283 passed, 23 xfailed`，1.4s；分组重构后为 `305 passed, 7 xfailed`，312 例），含 golden 分类表与「已知缺陷契约」xfail |
 | 本文所在提交 | `docs` | 重写 README；新增 `CHANGELOG.md`、`LICENSE`(MIT)、`docs/architecture.md`、`docs/getting-started.md` |
 
 设计与依据见 `docs/ci.md` 与审计报告 `audit-c-engineering.md`。

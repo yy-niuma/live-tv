@@ -174,7 +174,7 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 - `_excluded()` 是死代码（37 行，无调用方），未删是因为本批次不想动无关逻辑。
 - 所有正则以**字符串**形式传给 `re.search`，`re` 的 512 条内部缓存被反复冲掉，时间主要花在重新编译上（审计报告 §3.4 的 cProfile 实测：1,379 频道 40.2s，预编译后 1.0s，约 40×。**该 40× 是那份报告的实测值，本次重构未复测，也未预编译**）。
 - `CATEGORY_ORDER` 里 11 个「预留但当前不产出」的分类仍与 `categorize()` 不对应（§3.8）。
-- 4 条已知残留缺陷（`ATV` 归卫视但 `is_hk_region=False`、`DetetivesMedicos`、`HOY资讯台`、`CNN` vs `BBC World News` 不一致）登记在 `docs/categorize-bug-analysis.md` 与 `tests/test_known_defects.py`。
+- 3 条已知残留缺陷（`ATV` 归卫视但 `is_hk_region=False`、`DetetivesMedicos`、`CNNInternational` 落 `🌐 国际频道`）登记在 `docs/categorize-bug-analysis.md` 与 `tests/test_known_defects.py`。原第 4 条 `HOY资讯台` 已修 —— 它其实是重构用 `r"\bhoy\b"` 引入的新回归（`\b` 在 CJK 边界不成立），不是既有缺陷。
 
 回归护栏：`scripts/eval_categorize.py`（`known_bugs.tsv` 24 条 + `known_good.tsv` 27 条，当前 50/51）、`tests/test_categorize_golden.py`（行为钉死表）、`tests/test_known_defects.py`（8 条 xfail 契约）。
 
@@ -280,4 +280,4 @@ group.normalize ──► lib.whitelist   （函数内 import，带 try/except I
 
 审计报告 `audit-c-engineering.md` §1.1 记的代码规模是 **2,161 行 / 14 个 .py / `main.py` 159 行**；当前 `wc -l` 得到 **2,191 行 / `main.py` 168 行**。其中 9 行来自 `src/main.py` 的退出码修复（`print` + `return` → `file=sys.stderr` + `raise SystemExit(1)`，提交 `871e32d`）：`git show 074c677:src/main.py | wc -l` → `159`，当前 HEAD → `168`；另外 +7 行来自 `src/group/categorizer.py`（670 → 677）、+14 行来自 `src/generator.py`（182 → 196），都是 2026-10-29 分组逻辑重构（`a00e134`）带来的。报告记录时其余文件行数逐条一致。
 
-同理，报告 §1.2 说「零测试、182 次机器人提交」——机器人提交今天已是 **183** 次（`git rev-list --count --author=github-actions HEAD`）；「零测试」在 189 个历史提交里成立（`git rev-list --count 3020583^` → 189），但 `3020583` 起仓库已有 **306** 个用例，分组重构后为 **298 passed / 8 xfailed**。报告描述的是整改前的状态，本文描述现状。
+同理，报告 §1.2 说「零测试、182 次机器人提交」——机器人提交今天已是 **183** 次（`git rev-list --count --author=github-actions HEAD`）；「零测试」在 189 个历史提交里成立（`git rev-list --count 3020583^` → 189），但 `3020583` 起仓库已有 **306** 个用例，分组重构后为 **305 passed / 7 xfailed**（312 例）。报告描述的是整改前的状态，本文描述现状。
