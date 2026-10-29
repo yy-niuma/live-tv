@@ -156,7 +156,7 @@ jobs:
           echo "✅ 已推送: $COMMIT_MSG"
 
       - name: 上传产物（保留7天）
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: iptv-output-${{ github.run_number }}
