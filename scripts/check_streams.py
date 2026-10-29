@@ -7,6 +7,15 @@
 用法:
     .venv/bin/python scripts/check_streams.py output/hk_merged.m3u
     .venv/bin/python scripts/check_streams.py <m3u> --jobs 20 --json out.json
+
+退出码（重要，接 cron / CI 时别误判）:
+    0  全部可用
+    1  **跑完了，但存在不可用条目** —— 这是本工具的设计行为，不是崩溃。
+       探测"流能不能播"这件事本身就以"有死链"为常态，所以不能拿退出码当异常。
+    2  解析不出任何频道（m3u 路径或格式错），这才是真错误。
+
+    如果要把"死链过多"当失败条件，请自己读 --json 输出判定，
+    例如 `ok / total < 0.5` 才算失败。
 """
 from __future__ import annotations
 
@@ -72,7 +81,14 @@ def main() -> int:
     ap.add_argument("--json", type=Path, default=None, help="把逐条结果写成 JSON")
     ap.add_argument("--only", default=None, help="只验证名字匹配该正则的频道")
     ap.add_argument("--quiet", action="store_true", help="只打汇总，不逐条")
+    ap.add_argument("--max-bad-ratio", type=float, default=None,
+                    help="不可用占比超过该值时以退出码 1 表示「超阈值」；"
+                         "不传则退 1 仅表示「存在不可用条目」")
     args = ap.parse_args()
+
+    if not args.m3u.is_file():
+        print(f"文件不存在: {args.m3u}", file=sys.stderr)
+        return 2
 
     channels = parse_m3u(args.m3u)
     if args.only:
@@ -115,7 +131,13 @@ def main() -> int:
             encoding="utf-8",
         )
         print(f"\n逐条结果已写入 {args.json}")
-    return 0 if not bad else 1
+    if args.max_bad_ratio is None:
+        return 0 if not bad else 1
+    ratio = len(bad) / len(results)
+    if ratio > args.max_bad_ratio:
+        print(f"\n不可用占比 {ratio:.1%} 超过阈值 {args.max_bad_ratio:.1%}")
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
