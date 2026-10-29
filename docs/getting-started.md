@@ -128,7 +128,7 @@ python3 -c "import json;d=json.load(open('output/stats.json'));print(len(d), sum
 这是**设计内的体积上限**，不是抓取不全，也不是 bug：
 
 ```python
-# src/generator.py:167-172
+# src/generator.py:181-186
 # ALL 播放列表每个分组最多 100 个
 for ch in channels[:100]:
     ...
@@ -138,7 +138,7 @@ if len(channels) > 100:
 
 `all_merged.m3u` 里每个分组只写前 100 条，超出的部分用一行 `# ... and N more` 注释代替（播放器会忽略这行）。当前 `all_merged.m3u` 里有 9 个分组触发了上限，丢弃合计 6,892 条。
 
-`hk_merged.m3u` **没有**这个上限（`src/generator.py:144-149` 是完整写出），所以港澳台列表是「全量」的——只是它本来就只收港澳台。
+`hk_merged.m3u` **没有**这个上限（`src/generator.py:131-141` 是完整写出，无 `[:100]`），所以港澳台列表是「全量」的——只是它本来就只收港澳台。
 
 要改这个上限，改 `src/generator.py` 的 `[:100]`；那是行为变更，不在文档范围内。
 
@@ -156,9 +156,11 @@ if len(channels) > 100:
 
 ### 3) 为什么港澳台列表只有几十个频道？
 
-`hk_merged.m3u` 只收 `is_hk_region()` 判定为港澳台的频道（TVB / ViuTV / RTHK / HOY TV / Now TV / 台湾 / 澳门 等 7 个分组），不是全球列表的子集拷贝。它在历史提交里一直在几十的量级波动（本次实测 58 条，仓库快照 33 条），源站死掉几个就能掉一截。
+`hk_merged.m3u` 只收 `is_hk_region()` 判定为港澳台的频道，不是全球列表的子集拷贝。它在历史提交里一直在几十的量级波动（仓库快照 33 条），源站死掉几个就能掉一截。
 
-另外有个已知缺陷会让它偏少：`categorizer.py` 里若干正则写成了双反斜杠（如 `\\bmacau\\b`），永远匹配不上，于是 `Macau TV` 这类英文名频道被分类成「🇲🇴 澳门」但 `is_hk_region()` 返回 `False`，进不了 hk 列表（实测见 `docs/architecture.md`）。
+**这个数在 2026-10-29 的分组逻辑重构后明显变大了**：原先 `is_hk_region()` 与 `categorize()` 各维护一份港澳台关键词表，且前者有几条正则写成双反斜杠（`\\bmacau\\b`）永不命中，导致 `Macau TV` / `TTV` / `PTS` / `CNA 中央社` / `非凡商业台` / `东森财经新闻` / `港台电视31` 被判成港澳台却进不了 hk 列表。现在两者共用 `HK_TW_MO_RULES`，实测同一天两次全新运行：`hk_merged` 从 **58 条 / 7 分组** 变成 **103 条 / 9 分组**（13,470 条语料上 `is_hk_region()` 覆盖 92 → 141，丢失 0 条）。
+
+（仓库里现有的 `output/hk_merged.m3u` 还是重构前的，所以仍是 33 条。）
 
 ### 4) `--skip-fetch` 报「跳过抓取但无缓存数据，请先正常运行一次抓取」
 

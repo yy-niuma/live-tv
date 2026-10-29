@@ -30,15 +30,15 @@ live-tv/
 └── output/                all_merged.m3u / hk_merged.m3u / stats.json
 ```
 
-行数（`wc -l src/*.py src/group/*.py src/lib/*.py`，合计 **2,170**）：
+行数（`wc -l src/*.py src/group/*.py src/lib/*.py`，合计 **2,191**）：
 
 | 文件 | 行数 | 占比 | 职责 |
 |---|---:|---:|---|
-| `src/group/categorizer.py` | 670 | 30.9% | 分类规则与判定：`_match()` `_excluded()` `is_hk_region()` `recategorize_others()` `categorize()` |
-| `src/group/normalize.py` | 318 | 14.7% | 频道名归一（繁简、噪声、别名）、URL 优先级、同名合并 |
-| `src/logo_map.py` | 302 | 13.9% | 硬编码 logo 表 + `get_logo()` / `get_logo_fuzzy()` |
-| `src/fetcher.py` | 187 | 8.6% | `Channel` 数据类 + 20 源并发抓取 + M3U/YAML 解析 + 按 URL 去重 |
-| `src/generator.py` | 182 | 8.4% | m3u 文本拼装、分类排序、脏名过滤、100/组截断 |
+| `src/group/categorizer.py` | 677 | 30.9% | 分类规则与判定：`_match()` `HK_TW_MO_RULES` `_region_category()` `is_hk_region()` `recategorize_others()` `categorize()` |
+| `src/group/normalize.py` | 318 | 14.5% | 频道名归一（繁简、噪声、别名）、URL 优先级、同名合并 |
+| `src/logo_map.py` | 302 | 13.8% | 硬编码 logo 表 + `get_logo()` / `get_logo_fuzzy()` |
+| `src/fetcher.py` | 187 | 8.5% | `Channel` 数据类 + 20 源并发抓取 + M3U/YAML 解析 + 按 URL 去重 |
+| `src/generator.py` | 196 | 8.9% | m3u 文本拼装、分类排序（`CATEGORY_ORDER` + `KNOWN_CATEGORIES`）、脏名过滤、100/组截断 |
 | `src/main.py` | 168 | 7.7% | CLI 参数、四阶段编排、`stats.json` 写出 |
 | `src/grouper.py` | 92 | 4.2% | 别名表加载、调 `normalize.*` 合并、调 `categorize()` 分组 |
 | `src/validator.py` | 92 | 4.2% | HEAD/GET 探测、代理域名拒绝、CDN 白名单放行 |
@@ -94,7 +94,7 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 **关键不变量（写文档/改代码时必须知道）**：
 
 1. `stats.json` 记录的是**第 ③ 步的计数**（`src/main.py:115`），所以它永远 ≥ `all_merged.m3u` 的条目数，差值 = 脏名过滤量 + 100/组截断量。
-2. `all_merged.m3u` 每分组上限 100 条（`src/generator.py:168`），`hk_merged.m3u` 无上限（`src/generator.py:144-149`）。
+2. `all_merged.m3u` 每分组上限 100 条（`src/generator.py:182`），`hk_merged.m3u` 无上限（`src/generator.py:131-141`）。
 3. 两个文件头部的 `# Total: N channels` 都是**截断前**的数，不等于实际 `#EXTINF` 条数。
 
 ---
@@ -139,16 +139,44 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 
 已知问题：`strip_noise()` 里 `re.compile(r'\s+').sub('', ...)` 把**所有内部空格删掉**（实测 `"TVB 翡翠台"` → `"TVB翡翠台"`），下游 `logo_map` 只能靠 `norm_nospace` 分支打补丁（§3.5）；`_SPECIAL_MAPPING` 每次调用重建；`original` 变量赋值后未使用。
 
-### 3.6 `group/categorizer.py`（670 行）
+### 3.6 `group/categorizer.py`（677 行）
 
-全项目最重的文件：`PROVINCE_KEYWORDS`（32 组省级关键词表）+ 一系列分类正则 + 5 个函数。
+全项目最重的文件：`PROVINCE_KEYWORDS`（32 组省级关键词表）+ `HK_TW_MO_RULES` + 一系列分类正则 + 8 个函数。
 
-- `categorize()`：205 行、26 个分支的顺序 if 判定（AST 实测），决定每个频道落到哪个分组。
-- `is_hk_region()`：136 行，决定频道进不进 `hk_merged.m3u`。
-- `recategorize_others()`：96 行，「📺 其他」的二次细分。
-- `_excluded()`：37 行，**全仓无调用方**（`grep -rn "_excluded" src` 只有定义）。
+**2026-10-29 重构过一次**，此前 `categorize()` 与 `is_hk_region()` 各维护一份港澳台关键词表，两套结论会打架。现在港澳台判定只有一处：
 
-已知问题：`_excluded()` 是死代码；`is_hk_region()` 尾部有一段无论条件如何都 `return False` 的不可达分支；若干正则写成双反斜杠（`\\bmacau\\b` 等），实测永不匹配，导致 `categorize("Macau TV")` = `🇲🇴 澳门` 而 `is_hk_region("Macau TV")` = `False`（§3.5）；所有正则以字符串传给 `re.search`，`re` 的 512 条缓存被冲掉，实测 1,379 频道耗时 40.2s、预编译后 1.0s（§3.4，该数据来自审计报告，本次未复测）。
+| 符号 | 行 | 行数 | 职责 |
+|---|---:|---:|---|
+| `PROVINCE_KEYWORDS` | 10 | — | 32 组省级关键词表 |
+| `_match()` | 48 | 9 | 名称/分组上做正则命中（`_excluded()` 之外的唯一匹配入口） |
+| `_excluded()` | 59 | 37 | **全仓无调用方的死代码**（`grep -rn "_excluded" src` 只有定义） |
+| `HK_TW_MO_RULES` | 108 | — | 港澳台统一规则表（港/台/澳三组，`categorize()` 与 `is_hk_region()` 共用） |
+| `_REGION_EXTRA` / `_REGION_NAME_VETO` / `_REGION_GROUP_VETO` | 146 / 153 / 159 | — | 附加地区词、名称否决词、分组否决词 |
+| `_region_extra()` | 162 | 4 | 附加地区词命中 |
+| `_region_category()` | 168 | 15 | 返回 `📺 TVB` / `🇹🇼 台湾` / `🇲🇴 澳门` 之一或 `None` —— **唯一的港澳台判定实现** |
+| `PROVINCE_LATIN` | 188 | — | 拼音省名（`zhejiang` / `xinjiang` …） |
+| `CJK_CITY_SUFFIX` / `CONTENT_WORDS` / `_LOCAL_OK_WORDS` / `CONTENT_WORDS_STRICT` | 203–219 | — | 地市台识别的词表与反例 |
+| `GROUP_TITLE_ZH_MAPPING` | 224 | — | 10 个中文 group → 分类 |
+| `CCTV_RE` / `CETV_RE` | 242 / 248 | — | 央视/教育台正则（用 `(?![a-z])` 而非 `\b`，因为 `\b` 在「数字+中文」边界不成立） |
+| `_looks_like_cn_local()` | 255 | 26 | 地市台三级判据（后缀 + 内容词反例 + 外来地区词否决） |
+| `is_hk_region()` | 286 | **11** | 直接委托 `_region_category() or _region_extra()` |
+| `GROUP_TITLE_EN_MAPPING` | 302 | — | 英文 group → 分类（iptv-org 用） |
+| `LOGO_REGION_PATTERNS` / `CHANNEL_REGION_PATTERNS` | 366 / 381 | — | logo 域名、频道名前缀 → 地区 |
+| `recategorize_others()` | 425 | 61 | 「🌐 国际」与地市台的二次细分，14 个分支 |
+| `categorize()` | 491 | **187** | 主判定，18 个分支的顺序 if |
+
+以上行数用 AST 实测（`ast.walk` 取 `lineno`/`end_lineno`），不是估算。
+
+已修复（本次重构）：`is_hk_region()` 从 136 行缩到 11 行，那段「无论条件如何都 `return False`」的不可达分支随之一并消失；双反斜杠正则（`\\bmacau\\b` 等永不匹配）已删除，实测 `is_hk_region("Macau TV")` / `is_hk_region("TTV")` / `is_hk_region("PTS")` 全部 `True`。
+
+仍然存在的已知问题：
+
+- `_excluded()` 是死代码（37 行，无调用方），未删是因为本批次不想动无关逻辑。
+- 所有正则以**字符串**形式传给 `re.search`，`re` 的 512 条内部缓存被反复冲掉，时间主要花在重新编译上（审计报告 §3.4 的 cProfile 实测：1,379 频道 40.2s，预编译后 1.0s，约 40×。**该 40× 是那份报告的实测值，本次重构未复测，也未预编译**）。
+- `CATEGORY_ORDER` 里 11 个「预留但当前不产出」的分类仍与 `categorize()` 不对应（§3.8）。
+- 4 条已知残留缺陷（`ATV` 归卫视但 `is_hk_region=False`、`DetetivesMedicos`、`HOY资讯台`、`CNN` vs `BBC World News` 不一致）登记在 `docs/categorize-bug-analysis.md` 与 `tests/test_known_defects.py`。
+
+回归护栏：`scripts/eval_categorize.py`（`known_bugs.tsv` 24 条 + `known_good.tsv` 27 条，当前 50/51）、`tests/test_categorize_golden.py`（行为钉死表）、`tests/test_known_defects.py`（8 条 xfail 契约）。
 
 ### 3.7 `logo_map.py`（302 行）
 
@@ -156,11 +184,12 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 
 已知问题：`"viutv"` 键重复定义（字面量 170 对 → 实际 169 键，后者静默覆盖前者）；`norm_nospace` 分支是给 `strip_noise` 空格 bug 打的补丁；全表线性扫描在放开 100/组截断后会线性放大（§3.4(c)）。
 
-### 3.8 `generator.py`（182 行）
+### 3.8 `generator.py`（196 行）
 
 纯文本拼装，无 IO 依赖（只写文件）。要点：
 
-- `CATEGORY_ORDER`（62 个分类的固定顺序，`len(CATEGORY_ORDER)` 实测 62）决定输出顺序，未列出的分类排最后并按名称排序。
+- `CATEGORY_ORDER`（65 个分类的固定顺序，`len(CATEGORY_ORDER)` 实测 65）决定输出顺序；`KNOWN_CATEGORIES` 是它的 `frozenset` 视图，供生成端做一致性断言。未列出的分类排最后并按名称排序。
+  **其中 11 个是「预留但 categorize() 当前不产出」的分组**（`🇯🇵 日本`…`🌏 大洋洲`、`📺 其他`），原样保留是为了不破坏旧产物排序与 `tests/test_generator.py` 的 `sort_key` 断言。
 - `is_clean_name()` 丢脏名：排除长度 < 2、含浏览器标识（`chrome/`、`safari`、`edg/`、`webkit` 等）、名字里带 URL 残留的条目。
 - `build_extinf()` 输出 `#EXTINF:-1 tvg-name="…" tvg-logo="…" group-title="…",名字`（缺 logo 时用 `get_logo_fuzzy()` 兜底）。
 - `generate_hk_and_all()`：先 `is_clean_name` 过滤，再用 `is_hk_region` 切 hk 子集，all 分支 `[:100]` 截断并写 `# ... and N more`。
@@ -213,7 +242,7 @@ group.normalize ──► lib.whitelist   （函数内 import，带 try/except I
 
 | 严重度 | 问题 | 位置 | 交叉引用 |
 |---|---|---|---|
-| P0 | 100/组截断使交付量与 `stats.json` 不一致 | `generator.py:168` | README「频道数」；`audit-d-output.md` |
+| P0 | 100/组截断使交付量与 `stats.json` 不一致 | `generator.py:182` | README「频道数」；`audit-d-output.md` |
 | P0 | ~~失败不产生非零退出码~~ **已修（`871e32d`）** | `main.py:154-158` | §2.3、C-P0-2 |
 | P0 | `validate()` 把异常当有效 | `validator.py:27` | §3.5b、C-P1-8 |
 | P0 | 零测试（HEAD 状态） | 全仓 | §1.2、C-P0-1 |
@@ -249,6 +278,6 @@ group.normalize ──► lib.whitelist   （函数内 import，带 try/except I
 
 ## 7. 与审计报告的差异（为什么数字对不上）
 
-审计报告 `audit-c-engineering.md` §1.1 记的代码规模是 **2,161 行 / 14 个 .py / `main.py` 159 行**；本次 `wc -l` 得到 **2,170 行 / `main.py` 168 行**。差 9 行全部来自 `src/main.py` 的退出码修复（`print` + `return` → `file=sys.stderr` + `raise SystemExit(1)`，提交 `871e32d`）：`git show 074c677:src/main.py | wc -l` → `159`，当前 HEAD → `168`。其余文件行数与报告逐条一致。
+审计报告 `audit-c-engineering.md` §1.1 记的代码规模是 **2,161 行 / 14 个 .py / `main.py` 159 行**；当前 `wc -l` 得到 **2,191 行 / `main.py` 168 行**。其中 9 行来自 `src/main.py` 的退出码修复（`print` + `return` → `file=sys.stderr` + `raise SystemExit(1)`，提交 `871e32d`）：`git show 074c677:src/main.py | wc -l` → `159`，当前 HEAD → `168`；另外 +7 行来自 `src/group/categorizer.py`（670 → 677）、+14 行来自 `src/generator.py`（182 → 196），都是 2026-10-29 分组逻辑重构（`a00e134`）带来的。报告记录时其余文件行数逐条一致。
 
-同理，报告 §1.2 说「零测试、182 次机器人提交」——机器人提交今天已是 183 次；「零测试」在 186 个历史提交里成立，但 `3020583` 起仓库已有 306 个用例（283 passed / 23 xfailed）。报告描述的是整改前的状态，本文描述现状。
+同理，报告 §1.2 说「零测试、182 次机器人提交」——机器人提交今天已是 **183** 次（`git rev-list --count --author=github-actions HEAD`）；「零测试」在 189 个历史提交里成立（`git rev-list --count 3020583^` → 189），但 `3020583` 起仓库已有 **306** 个用例，分组重构后为 **298 passed / 8 xfailed**。报告描述的是整改前的状态，本文描述现状。
