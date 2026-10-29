@@ -133,3 +133,45 @@ sources:
     url: "https://live.zbds.top/tv/iptv4.m3u"
     enabled: true
     priority: 5
+
+  # === 2026-10-29 新增：实测能带来「可播港台条目」的源 ===
+  # 选源口径（见 docs/source-health.md）：不看总量，只看
+  #   ① 相对现有 18,390 条语料的 URL 新颖度  ② 新增条目的**可播率**（HEAD/GET 实测）
+  #   ③ 上游是否还在持续更新
+  - name: "yuechan-live-gntv"
+    # 2026-10-13 更新；101 条新增，港台 17 条里 9 条可播（TVBS/中天/民视/华视/东森/三立/翡翠/明珠/TVB Plus）
+    url: "https://raw.githubusercontent.com/YueChan/Live/main/GNTV.m3u"
+    enabled: true
+    priority: 2
+
+  - name: "qist-tvbox"
+    # 2026-10-29 每日更新；762 条新增，港台 31 条里 9 条可播（有线/台视/凤凰/东森美洲）
+    url: "https://raw.githubusercontent.com/qist/tvbox/master/list.m3u"
+    enabled: true
+    priority: 3
+
+  - name: "hebijunge-tvbox-hktw"
+    # 2026-10-28 更新；15 条新增，港台 10 条里 6 条可播（明珠/台视新闻/东森超视/RTHK31 官方/TVBC）
+    url: "https://raw.githubusercontent.com/hebijunge/tvbox-config/main/lives/groups/港台.m3u"
+    enabled: true
+    priority: 3
+
+  - name: "jifeng-iptv-hkmt"
+    # 2026-08-26 更新；31 条新增，港台 23 条里 7 条可播（TVB PLUS/RTHK31/HOY77/澳视96/寰宇/台视/中天）
+    url: "https://raw.githubusercontent.com/Jifeng4ever/iptv/main/hkmt.m3u8"
+    enabled: true
+    priority: 4
+
+  - name: "newsboy-hktw"
+    # 2025-07 后未再更新（已 15 个月）：保留但降级。120 条新增，港台 55 条里 30 条实测可播
+    # （东森系列/民视/公视/华视/寰宇），是现有语料里缺的台湾新闻台主力。停更源有腐烂风险，
+    # 若将来可播率跌破 20% 直接停用。
+    url: "https://raw.githubusercontent.com/joy-sheng/newsboy/main/台湾香港澳门2024.m3u8"
+    enabled: true
+    priority: 5
+
+  - name: "millerarice-hk-tw"
+    # 2026-02 更新；与其它源几乎零重叠（122 条全新增），港台 73 条里 12 条可播
+    url: "https://raw.githubusercontent.com/MillerArice/iptv/main/m3u/港台.m3u"
+    enabled: true
+    priority: 5
