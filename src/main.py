@@ -3,6 +3,7 @@ import argparse
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 
 from src.config import Config
@@ -41,7 +42,7 @@ async def run(config_dir: str = None, output_dir: str = None, use_cache: bool = 
             channels = [Channel(**d) for d in channels_data]
             print(f"  ✓ 跳过抓取，使用缓存: {len(channels)} 个频道")
         else:
-            print("  ❌ 跳过抓取但无缓存数据，请先正常运行一次抓取")
+            print("  ❌ 跳过抓取但无缓存数据，请先正常运行一次抓取", file=sys.stderr)
             return None
     elif use_cache:
         channels_data = cache.get(cache_key)
@@ -56,7 +57,11 @@ async def run(config_dir: str = None, output_dir: str = None, use_cache: bool = 
             try:
                 channels = await asyncio.wait_for(fetcher.fetch_all(), timeout=fetch_timeout)
             except asyncio.TimeoutError:
-                print(f"  ❌ 抓取超时（{fetch_timeout}s），请增加超时或使用 --skip-fetch 跳过")
+                print(
+                    f"  ❌ 抓取超时（{fetch_timeout}s），"
+                    "请增加超时或使用 --skip-fetch 跳过",
+                    file=sys.stderr,
+                )
                 return None
             cache.set(cache_key, [ch.__dict__ for ch in channels])
     else:
@@ -66,7 +71,11 @@ async def run(config_dir: str = None, output_dir: str = None, use_cache: bool = 
         try:
             channels = await asyncio.wait_for(fetcher.fetch_all(), timeout=fetch_timeout)
         except asyncio.TimeoutError:
-            print(f"  ❌ 抓取超时（{fetch_timeout}s），请增加超时或使用 --skip-fetch 跳过")
+            print(
+                f"  ❌ 抓取超时（{fetch_timeout}s），"
+                "请增加超时或使用 --skip-fetch 跳过",
+                file=sys.stderr,
+            )
             return None
 
     print(f"  ✓ 抓取完成: 共 {len(channels)} 个频道")
@@ -145,8 +154,8 @@ def main():
     ))
 
     if result is None:
-        print("\n❌ 运行失败")
-        return
+        print("\n❌ 运行失败", file=sys.stderr)
+        raise SystemExit(1)
 
     print(f"\n📊 总计:")
     print(f"   有效频道: {result['total']}")
