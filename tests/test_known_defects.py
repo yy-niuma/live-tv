@@ -42,12 +42,22 @@ def test_hoy_family_is_hk_region(classify, name):
     assert hk is True
 
 
-@pytest.mark.parametrize("name", ["iHOY爱历史"])
-def test_ihoy_history_channel_is_not_hoy_tv(classify, name):
-    """iHOY 爱历史 是历史纪录片频道，名字里带 hoy 但不是 HOY TV —— 不能被前置否定放过。"""
-    cat, hk = classify(name)
-    assert cat != "📺 HOY TV"
+def test_ihoy_history_channel_is_not_hoy_tv(classify):
+    """iHOY 爱历史 是历史纪录片频道，名字里带 hoy 但不是 HOY TV —— 不能被前置否定放过。
+
+    它真正的产出路径是 **logo**：`gitee.com/suxuang/.../IHOT爱历史.png` 命中
+    `LOGO_REGION_PATTERNS` 的 `gitee.com/suxuang` → `🇨🇳 中国源`。
+    所以这里同时钉两个口径，顺便记录「logo 会改变结果」：
+    """
+    cat, hk = classify("iHOY爱历史", "IHOT频道")
+    assert cat == "🌐 国际", f"不传 logo 应为兜底的国际，实际 {cat!r}"
     assert hk is False
+
+    logo = "https://gitee.com/suxuang/logo/raw/master/mylogo/IHOT爱历史.png"
+    cat_logo, hk_logo = classify("iHOY爱历史", "IHOT频道", logo)
+    assert cat_logo != "📺 HOY TV", "iHOY 被误判成 HOY TV"
+    assert cat_logo == "🇨🇳 中国源", f"带 gitee logo 应为中国源，实际 {cat_logo!r}"
+    assert hk_logo is False
 
 
 @pytest.mark.parametrize("name", ["Macau TV", "MACAU TV"])
