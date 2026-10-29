@@ -1,0 +1,15 @@
+# direct runtime dependencies only (no transitive deps here)
+#
+# 事实依据 (自己复核过, 命令与输出见 docs/ci.md §5):
+#   $ python - <<'EOF' ... ast.walk 扫描全部 .py 的 import ... EOF
+#   → src/ 下第三方 import 只有 aiohttp (fetcher.py, validator.py) 和 yaml (config.py, fetcher.py)
+#
+# 2026-10-29 删除的两个零引用依赖 (依据 reports/work-plan.md N-02):
+#   aiofiles>=23.0.0          grep -rn "aiofiles" src/ scripts/  → 空 (exit 1)
+#   charset-normalizer>=3.3.0 grep -rn "charset"  src/ scripts/  → 空 (exit 1)
+#   charset-normalizer 是 requests 的传递依赖, 本仓库从不 import requests
+#   (reports/bench/ 也没有), 所以它连"间接用到"都不成立。
+#
+# .in 文件只写范围, 精确版本在 requirements.txt (由 dependabot pip 提 PR 更新)。
+aiohttp>=3.9
+pyyaml>=6.0

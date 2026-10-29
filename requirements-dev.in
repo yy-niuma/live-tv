@@ -1,0 +1,13 @@
+# direct dev dependencies only (no transitive deps here)
+#
+# 用途:
+#   pytest / pytest-asyncio  → CI 的 check job 跑 tests/ (pytest.ini 由测试 lane 维护)
+#   ruff                     → 门禁 (阻断)
+#   mypy                     → 提示 (continue-on-error, 见 docs/ci.md §4)
+#
+# mypy 固定 2.4 系列: mypy 的默认检查项在小版本间会调整, 不锁会在 PR 里突然多出错误。
+# ruff 同理, 但 ruff 的默认规则集随版本变化更快, 因此 CI 里 select 是显式白名单 (见 pyproject.toml)。
+pytest>=9.2
+pytest-asyncio>=1.4
+ruff>=0.17
+mypy>=2.4

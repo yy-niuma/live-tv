@@ -1,0 +1,19 @@
+# dev 依赖的完整传递闭包, 全部精确锁定 (==), 无 hash。
+# 与 requirements.txt 分开: update job 只装运行时依赖, 不会把 ruff/mypy 拖进生产镜像。
+# CI 的 check job 两个文件都装 (tests/ import src/ → 需要 aiohttp/yaml)。
+#
+# 来源: .venv pip freeze 抽出, 并在 Python 3.11.15 下用 pip install --dry-run --report 复算一致。
+# typing_extensions 同时出现在 requirements.txt: 是 aiohttp 与 mypy 的共同传递依赖, 版本必须一致。
+ast_serialize==0.13.1
+iniconfig==2.3.1
+librt==0.16.0
+mypy==2.4.0
+mypy_extensions==1.1.0
+packaging==26.3
+pathspec==1.1.1
+Pygments==2.21.0
+pluggy==1.7.0
+pytest==9.2.0
+pytest-asyncio==1.4.1
+ruff==0.17.3
+typing_extensions==4.16.0

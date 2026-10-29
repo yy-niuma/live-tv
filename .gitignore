@@ -1,3 +1,15 @@
 __pycache__/
 *.pyc
 .venv/
+
+# 缓存 / 工具产物
+.cache/
+src/.cache/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+.DS_Store

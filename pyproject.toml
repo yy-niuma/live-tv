@@ -1,0 +1,138 @@
+# live-tv 工程配置
+#
+# 这个文件存在的目的（不是抽象洁癖，对应 reports/audit-c-engineering.md §3.1）：
+#   1. ruff / mypy 第一次有了唯一配置来源 —— 之前 ruff 只能靠命令行 select 猜，
+#      mypy 完全裸跑（`mypy src --ignore-missing-imports`），结果不可复现。
+#   2. 依赖范围写进 [project].dependencies，和 requirements.in 一致。
+#   3. 给 dependabot / 编辑器 / pre-commit 一个标准锚点。
+#
+# 有意不做的事：
+#   - 不写 [project.scripts]：没有 console_scripts 入口，`python -m src.main` 是唯一入口。
+#   - 不写 [build-system]：本仓库不发布也不 `pip install .`，且 src/ 目前直接当包名用
+#     （audit-c §3.2，归位到 src/livetv/ 在 reports/work-plan.md 3-4），
+#     现在加 build-system 会把一个错的包布局固化进 wheel。
+#   - 不写 [tool.pytest.ini_options]：pytest 配置归测试 lane 的 pytest.ini，两处配置只会打架。
+
+[project]
+name = "live-tv"
+version = "0.1.0"
+description = "抓取公开 IPTV 源，分类生成 m3u 播放列表（GitHub Actions 每日定时更新）"
+requires-python = ">=3.11"
+dependencies = [
+    "aiohttp>=3.9",
+    "pyyaml>=6.0",
+]
+
+# ---------------------------------------------------------------------------
+# ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py311"
+# 88 不是拍脑袋：现网 1203 行里 1171 行（97.3%）本来就 <= 88，主流宽度就是 88，
+# 换 100 只能少 12 行违规，却让"主流"从 97.3% 掉到 99.2% 的不必要复杂度。
+line-length = 88
+src = ["src", "scripts"]
+# reports/ 是审计产出（不入库），output/ 是生成产物，都不该进 lint 面。
+exclude = [".venv", "reports", "output", "**/__pycache__"]
+
+[tool.ruff.lint]
+# 显式白名单，不用 ruff 的默认全集：
+#   默认全集在 0.17 已扩到 UP/F401…/SIM/BLE/ASYNC 等 107 处，其中 46 处（UP006/UP035 等）
+#   必须改 src/ 才能修，而本 lane 明确不许改 src/。
+#   E/F/W 是"能抓真 bug"的底线（未使用导入、未定义名、f-string 占位符、重复字典键），
+#   I 是导入排序（audit-c §3.3：三种导入写法并存）。
+# 注意：这里只有 select，没有任何全局 ignore —— 整条规则关掉是不可接受的（见 per-file-ignores）。
+select = ["E", "F", "W", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# 记账规则：每条忽略都必须写清「几处 + 什么性质 + 审计报告哪一节 + 何时清掉」。
+# 总账：11 个文件 83 处忽略（E501 ×61、F401 ×9、I001 ×6、W293 ×3、F541 ×2、F601 ×1、F841 ×1）。
+# 其中 src/ 10 个文件 69 处，scripts/check_output.py 14 处（归 Lane C，见下）。
+# 清账主线是 reports/work-plan.md 3-4（src → src/livetv/ 包名归位 + 拆 categorizer.py），
+# 那一次 `ruff check --fix` 可以一次性消掉 I001/F401/F541/W293 共 20 处。
+
+# 全局唯一一处 E501：config.py:57（92 字符，长默认值常量）。
+# 归属 audit-c §1.5「--select E,F,W 的构成」E501 行。清账：work-plan 3-4 折行。
+"src/config.py" = [
+    "E501", # 1 处：长常量定义行 92 字符
+]
+
+# fetcher.py —— 采集体，第 3 轮 3-1/3-4 才允许动（work-plan §5 出界清单点名）。
+"src/fetcher.py" = [
+    "F401", # 2 处：typing.Any、dataclasses.dataclass 未使用（Channel 是手写类）—— audit-c §1.5「9 个 F401」
+    "I001", # 1 处：导入块未排序 —— audit-c §3.3「导入风格：三种写法并存」
+    "E501", # 2 处：34/36 行的长签名与默认值（94/103 字符）—— audit-c §1.5 E501
+]
+
+# generator.py —— 输出层，`[:100]` 是设计内上限（reports/work-plan.md N-01），本轮严禁改。
+"src/generator.py" = [
+    "F401", # 1 处：`import re` 未使用 —— audit-c §1.5「9 个 F401」
+    "I001", # 1 处：导入块未排序 —— audit-c §3.3
+    "E501", # 1 处：78 行长表达式 95 字符 —— audit-c §1.5 E501
+]
+
+# categorizer.py —— 全区最大债务源：41 处。E501 集中在 PROVINCE_KEYWORDS / 关键词表，
+# 属于"数据表写成一行"，不是逻辑错误；真正的修法是 audit-a §4.2 把它拆成 rules/*.yaml。
+"src/group/categorizer.py" = [
+    "E501", # 35 处：关键词/正则数据表单行 90~230 字符（最长 524 行 230 字符）—— audit-c §1.5 E501；audit-a §1.5/§4.2
+    "F401", # 2 处：typing.Dict、typing.List 未使用 —— audit-c §1.5「9 个 F401」
+    "I001", # 1 处：导入块未排序 —— audit-c §3.3
+    "W293", # 3 处：50/61/103 行空行含尾随空格 —— audit-c §1.5 W293（3 处全在这个文件）
+]
+
+# normalize.py —— 3 处，其中 F841 是"残留逻辑"，属真缺陷，优先清账。
+"src/group/normalize.py" = [
+    "F401", # 1 处：typing.Tuple 未使用 —— audit-c §1.5「9 个 F401」
+    "E501", # 1 处：80 行 108 字符 —— audit-c §1.5 E501
+    "F841", # 1 处：113 行 `original = name` 赋值后从未使用（繁简转换前快照残骸）—— audit-c §1.5「真实缺陷 #2」；清账：3-1 之后由 src lane 修，需先定"匹配失败回退原名"是否要恢复
+]
+
+# 三个纯 I001（导入块未排序，audit-c §3.3），各自 1 处，无别的债务。
+"src/grouper.py" = [
+    "I001", # 1 处：导入块未排序 —— audit-c §3.3
+]
+"src/lib/cache.py" = [
+    "I001", # 1 处：导入块未排序 —— audit-c §3.3
+]
+
+# logo_map.py —— F601 是真 bug：42 行与 47 行都定义了 "viutv"，后者静默覆盖前者。
+# 这是本轮唯一"忽略了一条能抓 bug 的规则"的地方，代价必须写明：在修掉之前，
+# 任何新增 logo 映射若重复键都不会被发现。清账：3-4 折行时一并处理，需人工确认哪个扩展名映射是对的。
+"src/logo_map.py" = [
+    "F601", # 1 处：47 行 "viutv" 键重复（覆盖 42 行）—— audit-c §1.5「真实缺陷 #1」；清账：需行为判断，src lane 修
+]
+
+# main.py —— 第 1 轮已改过（raise SystemExit(1)），本轮不动。
+"src/main.py" = [
+    "E501", # 4 处：18/30 行等长提示串 92~126 字符 —— audit-c §1.5 E501
+    "F401", # 1 处：`import os` 未使用 —— audit-c §1.5「9 个 F401」
+    "I001", # 1 处：导入块未排序 —— audit-c §3.3
+    "F541", # 2 处：无占位符的 f-string（原审计指 92/151 行，第 1 轮改动后行号已偏移）—— audit-c §1.5 F541
+]
+
+"src/validator.py" = [
+    "F401", # 2 处：re、typing.Set 未使用 —— audit-c §1.5「9 个 F401」
+    "E501", # 3 处：最长 126 字符（audit-c §1.5 提到的 validator.py 最长行就在这）—— audit-c §1.5 E501
+]
+
+# scripts/check_output.py —— 所有权归 Lane C（reports/work-plan.md §2「保险丝加固」），
+# 本 lane 只读不改。2026-10-29 复核时该文件 14 处 E501（89~96 字符，全是长中文提示串与函数签名），
+# 性质与 src/ 的 E501 同类（audit-c §1.5）。这里的数字会随 Lane C 改动漂移，属预期。
+# 清账：不归本 lane。Lane C 交付后由 Controller 在 work-plan §4 整合环节删除本条并折行；
+# 在它交付前删掉这条会让 CI 红在一份别人正在写的文件上，那不是"可信门禁"，是随机失败。
+"scripts/check_output.py" = [
+    "E501", # 14 处：长中文提示串 / 函数签名 —— audit-c §1.5 E501
+]
+
+# ---------------------------------------------------------------------------
+# mypy
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+# 依赖没有 py.typed，不忽略就会变成"找不到 aiohttp/yaml 的类型"噪音：
+# 现有 requirements.txt 里没有任何 stub 包（types-PyYAML 没装），所以这条目前是必需的，不是偷懒。
+ignore_missing_imports = true
+files = ["src"]
+# 不收紧（disallow_untyped_defs 等）：src/ 现有大量无注解函数，收紧会产生数百条错误，
+# 而现在 19 条真错误一条都还没修 —— 先修真的，再加严。
+# 现状与决定见 docs/ci.md §4：19 个错误要改 src/ 才能修，因此 CI 里 mypy 是提示不是门禁。
