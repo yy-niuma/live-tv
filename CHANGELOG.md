@@ -51,7 +51,7 @@
   改 `r"(?<![a-z])hoy"` 后三条全恢复，`iHOY爱历史` 仍排除。同步把原来的错误 xfail 说明
   （「类型词判定先于品牌判定」）删掉，换成 7 条正向回归护栏。
 - `CNN` 归 `🌐 国际频道` 但 `BBC World News` 归 `📰 新闻财经` —— 国际新闻品牌规则目前只覆盖 BBC。
-- `CATEGORY_ORDER` 里仍有 11 个「预留但 `categorize()` 从不产出」的分类（`🇯🇵 日本`…`🌏 大洋洲`、`📺 其他`），保留是为不破坏 `sort_key` 断言，见 `tests/test_generator.py`。
+- `CATEGORY_ORDER` 里仍有 12 个「预留但 `categorize()` 从不产出」的分类（`🇯🇵 日本` / `🇰🇷 韩国` / `🌏 亚洲（东南亚）` / `🇮🇳 印度` / `🌏 亚洲（其他）` / `🌍 欧洲` / `🇺🇸 北美` / `🌎 拉丁美洲` / `🌍 中东` / `🌍 非洲` / `🌏 大洋洲` / `📺 其他`），保留是为不破坏 `sort_key` 断言，见 `tests/test_generator.py`；现由 `tests/test_category_order_contract.py` 的 `RESERVED_CATEGORIES` 钉住。
 
 详细缺陷分析与方案见 [`docs/categorize-bug-analysis.md`](docs/categorize-bug-analysis.md)、[`docs/categorize-improvement-proposal.md`](docs/categorize-improvement-proposal.md)。
 

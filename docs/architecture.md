@@ -173,7 +173,8 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 
 - `_excluded()` 是死代码（37 行，无调用方），未删是因为本批次不想动无关逻辑。
 - 所有正则以**字符串**形式传给 `re.search`，`re` 的 512 条内部缓存被反复冲掉，时间主要花在重新编译上（审计报告 §3.4 的 cProfile 实测：1,379 频道 40.2s，预编译后 1.0s，约 40×。**该 40× 是那份报告的实测值，本次重构未复测，也未预编译**）。
-- `CATEGORY_ORDER` 里 11 个「预留但当前不产出」的分类仍与 `categorize()` 不对应（§3.8）。
+- `CATEGORY_ORDER` 里 12 个「预留但当前不产出」的分类仍与 `categorize()` 不对应（§3.8）；
+  已由 `tests/test_category_order_contract.py` 的 `RESERVED_CATEGORIES` 钉住——一旦其中某个开始产出，用例失败。
 - 3 条已知残留缺陷（`ATV` 归卫视但 `is_hk_region=False`、`DetetivesMedicos`、`CNNInternational` 落 `🌐 国际频道`）登记在 `docs/categorize-bug-analysis.md` 与 `tests/test_known_defects.py`。原第 4 条 `HOY资讯台` 已修 —— 它其实是重构用 `r"\bhoy\b"` 引入的新回归（`\b` 在 CJK 边界不成立），不是既有缺陷。
 
 回归护栏：`scripts/eval_categorize.py`（`known_bugs.tsv` 24 条 + `known_good.tsv` 27 条，当前 50/51）、`tests/test_categorize_golden.py`（行为钉死表）、`tests/test_known_defects.py`（8 条 xfail 契约）。
@@ -189,7 +190,8 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 纯文本拼装，无 IO 依赖（只写文件）。要点：
 
 - `CATEGORY_ORDER`（65 个分类的固定顺序，`len(CATEGORY_ORDER)` 实测 65）决定输出顺序；`KNOWN_CATEGORIES` 是它的 `frozenset` 视图，供生成端做一致性断言。未列出的分类排最后并按名称排序。
-  **其中 11 个是「预留但 categorize() 当前不产出」的分组**（`🇯🇵 日本`…`🌏 大洋洲`、`📺 其他`），原样保留是为了不破坏旧产物排序与 `tests/test_generator.py` 的 `sort_key` 断言。
+  **其中 12 个是「预留但 categorize() 当前不产出」的分组**（`🇯🇵 日本` / `🇰🇷 韩国` / `🌏 亚洲（东南亚）` / `🇮🇳 印度` / `🌏 亚洲（其他）` / `🌍 欧洲` / `🇺🇸 北美` / `🌎 拉丁美洲` / `🌍 中东` / `🌍 非洲` / `🌏 大洋洲` / `📺 其他`），原样保留是为了不破坏旧产物排序与 `tests/test_generator.py` 的 `sort_key` 断言。
+  ⚠️ 别把 `🇲🇾 马来西亚` 与 `📺 有线电视` 算进预留：它们在 13,470 条语料上确实 0 命中，但真实产物里有（`all_merged` 4 条 / `hk_merged` 1 条），属于「语料没覆盖到」而非「不产出」。
 - `is_clean_name()` 丢脏名：排除长度 < 2、含浏览器标识（`chrome/`、`safari`、`edg/`、`webkit` 等）、名字里带 URL 残留的条目。
 - `build_extinf()` 输出 `#EXTINF:-1 tvg-name="…" tvg-logo="…" group-title="…",名字`（缺 logo 时用 `get_logo_fuzzy()` 兜底）。
 - `generate_hk_and_all()`：先 `is_clean_name` 过滤，再用 `is_hk_region` 切 hk 子集，all 分支 `[:100]` 截断并写 `# ... and N more`。
