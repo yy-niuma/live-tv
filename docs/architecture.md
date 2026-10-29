@@ -30,7 +30,7 @@ live-tv/
 └── output/                all_merged.m3u / hk_merged.m3u / stats.json
 ```
 
-行数（`wc -l src/*.py src/group/*.py src/lib/*.py`，合计 **2,198**）：
+行数（`wc -l src/*.py src/group/*.py src/lib/*.py`，合计 **2,200**）：
 
 | 文件 | 行数 | 占比 | 职责 |
 |---|---:|---:|---|
@@ -185,7 +185,7 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 
 已知问题：`"viutv"` 键重复定义（字面量 170 对 → 实际 169 键，后者静默覆盖前者）；`norm_nospace` 分支是给 `strip_noise` 空格 bug 打的补丁；全表线性扫描在放开 100/组截断后会线性放大（§3.4(c)）。
 
-### 3.8 `generator.py`（196 行）
+### 3.8 `generator.py`（198 行）
 
 纯文本拼装，无 IO 依赖（只写文件）。要点：
 
@@ -204,7 +204,7 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 - `build_extinf()` 输出 `#EXTINF:-1 tvg-name="…" tvg-logo="…" group-title="…",名字`（缺 logo 时用 `get_logo_fuzzy()` 兜底）。
 - `generate_hk_and_all()`：先 `is_clean_name` 过滤，再用 `is_hk_region` 切 hk 子集，all 分支 `[:100]` 截断并写 `# ... and N more`。
 
-已知问题：输出层**反向依赖分类层内部函数** `is_hk_region`（`generator.py:8`），分类规则一改产物就跟着变（§3.3）；`import re` 未使用；100/组上限让交付量与 `stats.json` 永久不一致（README「频道数」一节有完整推导）。
+已知问题：输出层**反向依赖分类层内部函数** `is_hk_region`（`generator.py:8`），分类规则一改产物就跟着变（§3.3）；`import re` 未使用；100/组上限让交付量与 `stats.json` 永久不一致（三口径推导见 [`getting-started.md`](getting-started.md) FAQ 1/2/3）。
 
 ### 3.9 `lib/cache.py`（49 行）
 
@@ -252,7 +252,7 @@ group.normalize ──► lib.whitelist   （函数内 import，带 try/except I
 
 | 严重度 | 问题 | 位置 | 交叉引用 |
 |---|---|---|---|
-| P0 | 100/组截断使交付量与 `stats.json` 不一致 | `generator.py:182` | README「频道数」；`audit-d-output.md` |
+| P0 | 100/组截断使交付量与 `stats.json` 不一致 | `generator.py:182` | `getting-started.md` FAQ 1/2/3；`audit-d-output.md` |
 | P0 | ~~失败不产生非零退出码~~ **已修（`871e32d`）** | `main.py:154-158` | §2.3、C-P0-2 |
 | P0 | `validate()` 把异常当有效 | `validator.py:27` | §3.5b、C-P1-8 |
 | P0 | 零测试（HEAD 状态） | 全仓 | §1.2、C-P0-1 |
@@ -288,6 +288,6 @@ group.normalize ──► lib.whitelist   （函数内 import，带 try/except I
 
 ## 7. 与审计报告的差异（为什么数字对不上）
 
-审计报告 `audit-c-engineering.md` §1.1 记的代码规模是 **2,161 行 / 14 个 .py / `main.py` 159 行**；当前 `wc -l` 得到 **2,198 行 / `main.py` 168 行**。其中 9 行来自 `src/main.py` 的退出码修复（`print` + `return` → `file=sys.stderr` + `raise SystemExit(1)`，提交 `871e32d`）：`git show 074c677:src/main.py | wc -l` → `159`，当前 HEAD → `168`；+14 行来自 `src/generator.py`（182 → 196）；`src/group/categorizer.py` 从 670 涨到 **684**，其中 +7 来自 2026-10-29 分组逻辑重构（`a00e134`，670 → 677）、+7 来自随后的第二遍修正（`8a292b3`，677 → 684，主要是说明 `\b` 在 CJK/数字边界失效的注释）。报告记录时其余文件行数逐条一致。
+审计报告 `audit-c-engineering.md` §1.1 记的代码规模是 **2,161 行 / 14 个 .py / `main.py` 159 行**；当前 `wc -l` 得到 **2,200 行 / `main.py` 168 行**。其中 9 行来自 `src/main.py` 的退出码修复（`print` + `return` → `file=sys.stderr` + `raise SystemExit(1)`，提交 `871e32d`）：`git show 074c677:src/main.py | wc -l` → `159`，当前 HEAD → `168`；+16 行来自 `src/generator.py`（182 → 198，其中 +14 是分组重构的 `CATEGORY_ORDER` 扩充、+2 是 `📺 有线电视` 的辨析注释）；`src/group/categorizer.py` 从 670 涨到 **684**，其中 +7 来自 2026-10-29 分组逻辑重构（`a00e134`，670 → 677）、+7 来自随后的第二遍修正（`8a292b3`，677 → 684，主要是说明 `\b` 在 CJK/数字边界失效的注释）。报告记录时其余文件行数逐条一致。
 
-同理，报告 §1.2 说「零测试、182 次机器人提交」——机器人提交今天已是 **183** 次（`git rev-list --count --author=github-actions HEAD`）；「零测试」在 189 个历史提交里成立（`git rev-list --count 3020583^` → 189），但 `3020583` 起仓库已有 **306** 个用例，分组重构后为 **305 passed / 7 xfailed**（312 例）。报告描述的是整改前的状态，本文描述现状。
+同理，报告 §1.2 说「零测试、182 次机器人提交」——机器人提交今天已是 **183** 次（`git rev-list --count --author=github-actions HEAD`）；「零测试」在 189 个历史提交里成立（`git rev-list --count 3020583^` → 189），但 `3020583` 起仓库已有 **306** 个用例，分组重构后经过多轮补齐现为 **323 passed / 7 xfailed**（330 例）。报告描述的是整改前的状态，本文描述现状。

@@ -61,6 +61,19 @@
 `is_hk_region()` 92 → 145、`📡 卫视频道` 603 → 37 两个数字**不受影响**（重测结果完全一致）。
 全景：13,470 条语料里 **1,891 条（14.0%）** 分类变化，11,579 条不变。
 
+### 文档结构重整
+
+README 从 468 行压到约 210 行，只留「是什么 / 怎么用 / 现状 / 限制 / 索引」；
+细节拆进两份新文档：
+
+| 新文档 | 承接的 README 内容 |
+|---|---|
+| [`docs/categorize-rework.md`](docs/categorize-rework.md) | 分组重构全过程：基线问题、机制隔离贡献、第二遍 `\b` 修正、统计口径错误自查、流可用性实测（原 README 148–421 行） |
+| [`docs/known-issues.md`](docs/known-issues.md) | 12 条限制的完整证据 + 数字核实命令（原 README 423–468 行） |
+
+同时修掉三处因文档搬迁而失效的交叉引用（`architecture.md` 两处「README 频道数」、
+`categorize-bug-analysis.md` 一处「README 第二遍修正」），以及两处过期的测试数（305 → 323）。
+
 ### 已知残留（未修，如实登记）
 
 - `DetetivesMedicos` 仍判 `🌐 国际`，期望 `📺 纪录片`（评测集唯一不达标项，故 `eval_categorize.py` 退出码 1）。
@@ -87,7 +100,7 @@
 | `871e32d` | `fix(主流程)` | 失败写 stderr + `raise SystemExit(1)`，退出码由 0 变 1（CI 终于能感知失败） |
 | `5221621` | `ci` | 拆 `check`（ruff + mypy + pytest，10 min）/ `update`（抓取→生成→产物体检→推送，45 min）；显式 `permissions` 与 `concurrency`；变更检测从 `git diff --stat \| grep "0 files changed"`（永假）改为 `git status --porcelain`；接入 dependabot；新增 `scripts/check_output.py` 产物保险丝 |
 | `7ff4be1` | `build(依赖)` | `requirements.txt` 从 4 条下界改为 11 个精确 pin 的传递闭包，删掉 2 个零引用依赖；新增 dev 依赖与 `pyproject.toml`（`requires-python = ">=3.11"`、ruff/mypy 配置）、`pytest.ini`；`.gitignore` 补缓存目录 |
-| `3020583` | `test` | 306 例回归基线（当时 `283 passed, 23 xfailed`，1.4s；分组重构后为 `305 passed, 7 xfailed`，312 例），含 golden 分类表与「已知缺陷契约」xfail |
+| `3020583` | `test` | 306 例回归基线（当时 `283 passed, 23 xfailed`，1.4s；分组重构后经过多轮补齐现为 `323 passed, 7 xfailed`，330 例），含 golden 分类表与「已知缺陷契约」xfail |
 | 本文所在提交 | `docs` | 重写 README；新增 `CHANGELOG.md`、`LICENSE`(MIT)、`docs/architecture.md`、`docs/getting-started.md` |
 
 设计与依据见 `docs/ci.md` 与审计报告 `audit-c-engineering.md`。
@@ -121,7 +134,7 @@
 
 ### 已知遗留（1.0.0 起就有，1.1.0 只修了「零测试 / 无 pyproject / 依赖无 lock」三项）
 
-- 每分组 100 条上限导致交付量与 `stats.json` 永久不一致（详见 README「频道数」）—— **仍未修，属于设计**。
+- 每分组 100 条上限导致交付量与 `stats.json` 永久不一致（详见 `docs/getting-started.md` FAQ 1/2/3）—— **仍未修，属于设计**。
 - `validate()` 把异常当「有效」（`validator.py:27`）—— **仍未修**。
 - `strip_noise()` 删除所有内部空格（`normalize.py:84`）—— **仍未修**。
 - 缓存落在 `src/.cache/`（`lib/cache.py:13`）—— **仍未修**（只补了 `.gitignore`）。
