@@ -1,15 +1,28 @@
 # IPTV 数据源配置
 # priority: 1=最高优先, 2=高优先, 3=中优先, 4=一般, 5=补充, 6=低优先
+#
+# 格式支持（见 src/fetcher.py，按**内容**嗅探，不看后缀）：
+#   - m3u / m3u8 文本（含 #EXTINF）
+#   - markdown 表格（Free-TV 那种 `| # | Channel | [>](url) |`）
+#   - YAML（Free-IPTV 的 streams: 结构）
+#
+# 2026-10-29 逐源体检结果与改动（详见 docs/source-health.md）：
+#   - sammy0101 / xiweiwong：原用 raw.gh.registry.cyou 代理，该代理已死（http=000）。
+#     改直连 raw.githubusercontent.com 后实测 32 / 252 条。
+#   - freetv-fun：t.freetv.fun 与 freetv.fun 均 20s 超时（http=000），停用。
+#   - Harbin-byte-iptv：内容与 free-tv-hk 逐字节相同（md5 一致），是 Free-TV 的旧 fork，停用。
+#   - 8 个 .md 源（Free-TV 各区域 + 上面那个 fork）此前全部解析 0 条，因为旧代码把非 .yml
+#     一律当 m3u；补上 markdown 表格解析后实测合计 164 条。
 
 sources:
   # === 最高优先：香港本地源 ===
   - name: "sammy0101"
-    url: "https://raw.gh.registry.cyou/sammy0101/hk-iptv-auto/refs/heads/main/hk_live.m3u"
+    url: "https://raw.githubusercontent.com/sammy0101/hk-iptv-auto/main/hk_live.m3u"
     enabled: true
     priority: 1
 
   - name: "xiweiwong-hk-iptv"
-    url: "https://raw.gh.registry.cyou/xiweiwong/hk-iptv-auto/refs/heads/main/hk_live.m3u"
+    url: "https://raw.githubusercontent.com/xiweiwong/hk-iptv-auto/main/hk_live.m3u"
     enabled: true
     priority: 2
 
@@ -20,8 +33,10 @@ sources:
     priority: 2
 
   - name: "freetv-fun"
+    # 2026-10-29 实测：t.freetv.fun / freetv.fun 均 20s 超时（http=000），域名疑似已停服。
+    # 保留条目以便将来恢复，先停用。
     url: "https://t.freetv.fun/m3u/playlist.m3u"
-    enabled: true
+    enabled: false
     priority: 2
     headers:
       User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -59,8 +74,10 @@ sources:
     priority: 4
 
   - name: "Harbin-byte-iptv"
+    # 停用：与 free-tv-hk 内容逐字节相同（md5 93275abfecd1…），是 Free-TV/IPTV 的旧 fork。
+    # 留着只会重复抓一遍，合并阶段按 URL 去重后完全没有增量。
     url: "https://raw.githubusercontent.com/Harbin-byte/iptv/master/lists/hong_kong.md"
-    enabled: true
+    enabled: false
     priority: 4
 
   - name: "suxuang-myIPTV"
@@ -68,7 +85,7 @@ sources:
     enabled: true
     priority: 4
 
-  # === 补充源：Free-TV 各地区 ===
+  # === 补充源：Free-TV 各地区（markdown 表格格式，靠内容嗅探解析）===
   - name: "free-tv-hk"
     url: "https://raw.githubusercontent.com/Free-TV/IPTV/master/lists/hong_kong.md"
     enabled: true
@@ -101,6 +118,13 @@ sources:
 
   - name: "free-tv-uk"
     url: "https://raw.githubusercontent.com/Free-TV/IPTV/master/lists/uk.md"
+    enabled: true
+    priority: 6
+
+  # 全区域合并版（实测 2,053 条，带 group-title / tvg-logo / tvg-id）。
+  # 与上面各区域 .md 部分重叠，靠合并阶段的 URL 去重收敛；作为国际补充放最低优先。
+  - name: "free-tv-all"
+    url: "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8"
     enabled: true
     priority: 6
 

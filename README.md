@@ -1,6 +1,6 @@
 # live-tv · IPTV 直播源聚合
 
-从 `config/sources.yaml` 配置的 **20 个数据源**（M3U / YAML 两种格式）抓取直播源，
+从 `config/sources.yaml` 配置的 **19 个启用数据源**（M3U / Markdown 表格 / YAML 三种格式）抓取直播源，
 按 URL 去重、繁名归一、同名合并、按频道名分类，最后生成两个 M3U 播放列表。
 
 - 仓库：<https://github.com/yy-niuma/live-tv>
@@ -88,7 +88,7 @@ python -m src.main --output ./output
 ## 数据流
 
 ```
-config/sources.yaml (20 源)
+config/sources.yaml (19 个启用源)
       │  src/fetcher.py      并发抓取 + 按 URL 去重（M3U / YAML）
       ▼
    Channel[]
@@ -111,13 +111,28 @@ output/all_merged.m3u · output/hk_merged.m3u · output/stats.json
 
 | 项目 | 值 |
 |---|---|
-| 代码规模 | 2,200 行 / 14 个 `.py`（`categorizer.py` 684 行是重心） |
-| 测试 | `pytest` → **323 passed, 7 xfailed**（330 例） |
+| 代码规模 | 2,334 行 / 14 个 `.py`（`categorizer.py` 684 行是重心） |
+| 数据源 | 配置 21 个，**启用 19 个**（2 个停用并注明原因），逐源体检 **0 个零产出** |
+| 测试 | `pytest` → **351 passed, 7 xfailed**（358 例） |
 | 静态检查 | `ruff check src scripts` → All checks passed |
-| 类型检查 | `mypy src/` → 18 errors（CI 里 `continue-on-error`） |
+| 类型检查 | `mypy src/` → 17 errors（CI 里 `continue-on-error`） |
 | 分组成员评测 | `scripts/eval_categorize.py` → **50/51**（唯一残留 `DetetivesMedicos`，脚本故意退 1） |
-| 最近一次全新运行 | 抓取 16,991 → 合并 12,578 → 53 组；`all` 1,706 条、`hk` 107 条 |
-| 港澳台链接可用率 | `hk_merged` 107 条中 43 条可用 = **40.2%**（`scripts/check_streams.py`） |
+| 最近一次全新运行 | 抓取 18,385 → 同名合并 13,709 → 53 组；`all` 1,724 条、`hk` **122** 条 |
+| 港澳台链接可用率 | `hk_merged` 107 条那次测出 43 条可用 = **40.2%**（`scripts/check_streams.py`） |
+
+逐源健康检查（这是新加的，之前没有）：
+
+```console
+$ .venv/bin/python scripts/check_sources.py
+合计 20771 条 / 19 个启用源
+✅ 每个源都抓到了内容
+```
+
+> **2026-10-29 修掉一个大坑**：此前 20 个源里 **11 个产出 0 条**，而总量仍有 18,285 条、
+> `exit=0`、产物正常生成 —— 整条流水线「看起来完全正常」。原因是 8 个 markdown 表格源
+> 被当成 m3u 解析、2 个指向已死的 GitHub 代理、1 个源站停服。
+> 现在三种格式按**内容**嗅探，0 条会打 WARNING，逐源体检进脚本。
+> 全过程与证据见 **[docs/source-health.md](docs/source-health.md)**。
 
 > 「仓库快照」与「最近一次全新运行」数字不同，是因为仓库里的 `output/` 还是**上一次 CI 数据提交**
 > 产的（重构前的分类器）。**不要拿旧快照对照新代码判断对错。**
@@ -175,6 +190,7 @@ output/all_merged.m3u · output/hk_merged.m3u · output/stats.json
 | [docs/architecture.md](docs/architecture.md) | 模块地图、数据流、每个模块的职责与已知问题 |
 | [docs/categorize-rework.md](docs/categorize-rework.md) | 分组逻辑重构全过程 + 全部实测数据 |
 | [docs/known-issues.md](docs/known-issues.md) | 12 条限制的证据 + 数字核实命令 |
+| [docs/source-health.md](docs/source-health.md) | 逐源体检：11 个零产出源的诊断与修复、格式嗅探、防复发 |
 | [docs/ci.md](docs/ci.md) | GitHub Actions 定时任务、超时预算、权限规范 |
 | [docs/categorize-bug-analysis.md](docs/categorize-bug-analysis.md) | 分组缺陷清单（19 条 D01–D19） |
 | [docs/categorize-improvement-proposal.md](docs/categorize-improvement-proposal.md) | 重构方案、残留取舍、后续 TODO |

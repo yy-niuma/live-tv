@@ -30,14 +30,14 @@ live-tv/
 └── output/                all_merged.m3u / hk_merged.m3u / stats.json
 ```
 
-行数（`wc -l src/*.py src/group/*.py src/lib/*.py`，合计 **2,200**）：
+行数（`wc -l src/*.py src/group/*.py src/lib/*.py`，合计 **2,334**）：
 
 | 文件 | 行数 | 占比 | 职责 |
 |---|---:|---:|---|
 | `src/group/categorizer.py` | 684 | 31.1% | 分类规则与判定：`_match()` `HK_TW_MO_RULES` `_region_category()` `is_hk_region()` `recategorize_others()` `categorize()` |
 | `src/group/normalize.py` | 318 | 14.5% | 频道名归一（繁简、噪声、别名）、URL 优先级、同名合并 |
 | `src/logo_map.py` | 302 | 13.8% | 硬编码 logo 表 + `get_logo()` / `get_logo_fuzzy()` |
-| `src/fetcher.py` | 187 | 8.5% | `Channel` 数据类 + 20 源并发抓取 + M3U/YAML 解析 + 按 URL 去重 |
+| `src/fetcher.py` | 314 | 13.5% | `Channel` 数据类 + 19 源并发抓取 + **按内容嗅探** m3u / markdown / YAML + 按 URL 去重 |
 | `src/generator.py` | 196 | 8.9% | m3u 文本拼装、分类排序（`CATEGORY_ORDER` + `KNOWN_CATEGORIES`）、脏名过滤、100/组截断 |
 | `src/main.py` | 168 | 7.7% | CLI 参数、四阶段编排、`stats.json` 写出 |
 | `src/grouper.py` | 92 | 4.2% | 别名表加载、调 `normalize.*` 合并、调 `categorize()` 分组 |
@@ -55,7 +55,7 @@ live-tv/
 `src/main.py:17-132` 的 `run()` 就是全部流程，四步顺序硬编码：
 
 ```
-config/sources.yaml ──(Config.sources, 只取 enabled≠false)──► 20 个源
+config/sources.yaml ──(Config.sources, 只取 enabled≠false)──► 19 个启用源
         │
         │ ① 抓取  Fetcher.fetch_all()            src/fetcher.py:42
         │   · 每源独立协程，Semaphore(10) 限流，最多重试 3 次（退避 1s/2s/3s）
@@ -108,14 +108,27 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 
 已知问题：三个属性都用「**空列表就当没加载**」判断（`if not self._sources: self._load_sources()`），所以配置文件为空时每次访问都会重新读盘；也没有任何 schema 校验（`config/` 的 376 行是事实上的业务规则，改错一个键不会报错）。
 
-### 3.2 `fetcher.py`（187 行）
+### 3.2 `fetcher.py`（314 行）
 
-- `Channel` 是**手写类**，不是 dataclass（`from dataclasses import dataclass` 导入后未使用）。
-- `_EXTINF_RE` / `_ATTR_RE` 两个正则解析 M3U；只认 `tvg-name|tvg-logo|tvg-chnid|group-title|attribute` 五个属性。
+分层：**网络层**（`_get_text`）与**解析层**（`parse_text` / `parse_m3u_text` / `parse_markdown_table` /
+`parse_yaml_text`，全是纯函数、无网络、可单测）。
+
+- `Channel` 是**手写类**，不是 dataclass。
+- **按内容嗅探格式，不看后缀**（2026-10-29 改）：`#EXTINF` → m3u（优先，因为有仓库把 m3u 存成 `.md`）
+  → markdown 表格 → YAML → `empty`。旧版按后缀分派，导致 8 个 markdown 表格源静默产出 0 条，
+  详见 [`source-health.md`](source-health.md)。
+- `_EXTINF_RE` / `_ATTR_RE` 两个正则解析 M3U；只认 `tvg-name|tvg-logo|tvg-chnid|group-title|attribute`
+  五个属性（`tvg-country` 之类会被丢掉）。
+- `parse_markdown_table()` 解析 Free-TV 那种 `| # | Channel | [>](url) | <img src> | epg |` 表格，
+  频道名取链接列左边那格，并剥掉尾部的 Ⓖ/Ⓢ/Ⓣ/Ⓨ 来源标记。
+- `_fetch_source()` 现在会**透传 `sources.yaml` 里的 `headers:`**（旧版读都没读，`freetv-fun` 配的
+  User-Agent 等于白配），并在 0 条时打 WARNING（旧版静默）。
 - `fetch_all()` 用 `asyncio.gather(return_exceptions=True)`，单源失败只 `print`，不中断。
 - 抓完按 URL 去重（`seen` 集合），所以同一条流在多源出现时只留一份，`_source`/`_priority` 也跟着第一条走。
 
-已知问题：`self._semaphore` 在 `__init__` 里是 `None`，只有 `fetch_all()` 开头才赋值，单独调 `_fetch_url()` 会 `AttributeError`；`_fetch_m3u()` 把 HTTP 与解析耦在一起，无法单测（审计报告 `audit-c-engineering.md` §3.5b、§5 第 2 步）；库层用 `print` 而非 `logging`（§1.5）。
+已知问题：`self._semaphore` 在 `__init__` 里是 `None`，只有 `fetch_all()` 开头才赋值 ——
+现在 `_get_text()` 里做了懒初始化兜底，但直接调 `_fetch_source()` 仍需要它已就绪；
+库层用 `print` 而非 `logging`（审计报告 §1.5）；`tvg-country` / `tvg-id` 等属性仍被丢弃。
 
 ### 3.3 `validator.py`（92 行）
 
@@ -288,6 +301,6 @@ group.normalize ──► lib.whitelist   （函数内 import，带 try/except I
 
 ## 7. 与审计报告的差异（为什么数字对不上）
 
-审计报告 `audit-c-engineering.md` §1.1 记的代码规模是 **2,161 行 / 14 个 .py / `main.py` 159 行**；当前 `wc -l` 得到 **2,200 行 / `main.py` 168 行**。其中 9 行来自 `src/main.py` 的退出码修复（`print` + `return` → `file=sys.stderr` + `raise SystemExit(1)`，提交 `871e32d`）：`git show 074c677:src/main.py | wc -l` → `159`，当前 HEAD → `168`；+16 行来自 `src/generator.py`（182 → 198，其中 +14 是分组重构的 `CATEGORY_ORDER` 扩充、+2 是 `📺 有线电视` 的辨析注释）；`src/group/categorizer.py` 从 670 涨到 **684**，其中 +7 来自 2026-10-29 分组逻辑重构（`a00e134`，670 → 677）、+7 来自随后的第二遍修正（`8a292b3`，677 → 684，主要是说明 `\b` 在 CJK/数字边界失效的注释）。报告记录时其余文件行数逐条一致。
+审计报告 `audit-c-engineering.md` §1.1 记的代码规模是 **2,161 行 / 14 个 .py / `main.py` 159 行**；当前 `wc -l` 得到 **2,334 行 / `main.py` 175 行**。其中 9 行来自 `src/main.py` 的退出码修复（`print` + `return` → `file=sys.stderr` + `raise SystemExit(1)`，提交 `871e32d`）：`git show 074c677:src/main.py | wc -l` → `159`，当前 HEAD → `168`；+16 行来自 `src/generator.py`（182 → 198，其中 +14 是分组重构的 `CATEGORY_ORDER` 扩充、+2 是 `📺 有线电视` 的辨析注释）；`src/group/categorizer.py` 从 670 涨到 **684**，其中 +7 来自 2026-10-29 分组逻辑重构（`a00e134`，670 → 677）、+7 来自随后的第二遍修正（`8a292b3`，677 → 684，主要是说明 `\b` 在 CJK/数字边界失效的注释）。报告记录时其余文件行数逐条一致。
 
 同理，报告 §1.2 说「零测试、182 次机器人提交」——机器人提交今天已是 **183** 次（`git rev-list --count --author=github-actions HEAD`）；「零测试」在 189 个历史提交里成立（`git rev-list --count 3020583^` → 189），但 `3020583` 起仓库已有 **306** 个用例，分组重构后经过多轮补齐现为 **323 passed / 7 xfailed**（330 例）。报告描述的是整改前的状态，本文描述现状。

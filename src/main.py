@@ -122,8 +122,14 @@ async def run(config_dir: str = None, output_dir: str = None, use_cache: bool = 
     print("完成！")
     print("=" * 60)
 
+    merged_total = sum(len(chs) for chs in grouped.values())
     return {
+        # `total` 是「抓取去重后的唯一频道数」（未跳过验证时也等于验证通过的数）。
+        # 注意它**不等于**分组后的条数：同名频道会被合并掉一批，
+        # 所以再单独给出 `merged`。两个数字都别跟 m3u 里的 #EXTINF 条数直接对比
+        # （生成阶段还有脏名过滤 + 每分组 100 条上限，见 docs/known-issues.md）。
         "total": len(valid_channels),
+        "merged": merged_total,
         "groups": len(grouped),
         "hk_channels": result['hk']['channels'],
         "all_channels": result['all']['channels'],
@@ -157,11 +163,12 @@ def main():
         print("\n❌ 运行失败", file=sys.stderr)
         raise SystemExit(1)
 
-    print(f"\n📊 总计:")
-    print(f"   有效频道: {result['total']}")
+    print("\n📊 总计:")
+    print(f"   抓取去重后: {result['total']} 个频道")
+    print(f"   同名合并后: {result['merged']} 个频道（合并掉 {result['total'] - result['merged']} 个重名）")
     print(f"   分组数: {result['groups']}")
-    print(f"   港澳台: {result['hk_channels']}")
-    print(f"   全球: {result['all_channels']}")
+    print(f"   港澳台列表: {result['hk_channels']} 条")
+    print(f"   全球列表: {result['all_channels']} 条")
 
 
 if __name__ == "__main__":
