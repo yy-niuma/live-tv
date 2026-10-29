@@ -1,0 +1,25 @@
+# name	期望分类	原因
+AricaTV	🌐 国际	裸 'atv' 子串误伤 → 卫视
+BarazaTV	🌐 国际	裸 'atv' 子串误伤 → 卫视
+AndorraTV	🌐 国际	裸 'atv' 子串误伤 → 卫视
+AlkarmaTV	🌐 国际	裸 'atv' 子串误伤 → 卫视
+AgenciaTV	🌐 国际	裸 'atv' 子串误伤 → 卫视
+Samatv	🌐 国际	裸 'atv' 子串误伤 → 卫视
+DunyaTV	🌐 国际	裸 'atv' 子串误伤 → 卫视
+Catv	🌐 国际	裸 'atv' 子串误伤 → 卫视
+XinjiangTV5	📺 新疆	裸 'tv5' 子串误伤 → 国际频道
+TBS	🌐 国际	裸 'tbs' 子串误伤 → 国际频道
+Madan TV	🌐 国际	裸 'dw' 子串误伤 → 国际频道
+DW TV	🌐 国际频道	应为国际但归国际频道（边界不一致）
+DiscoveryKidsLatinAmericaChile	🧸 儿童频道	'discovery' 优先于 kids → 纪录片
+DetetivesMedicos	📺 纪录片	group=Documentary 但应为剧集/娱乐
+Macau TV	🇲🇴 澳门	is_hk_region=False（双反斜杠正则）→ 不进 hk 列表
+Macau	🇲🇴 澳门	is_hk_region=False（双反斜杠正则）
+Now財經	📺 Now TV	双反斜杠/缺字形 → 落入国际兜底
+TDM	🇲🇴 澳门	澳门台英文名 TDM 未识别
+NICKJr	🧸 儿童频道	裸 'nick' 子串误伤
+BBC World News	📰 新闻财经
+CNN International	📰 新闻财经
+七台河新闻综合	🇨🇳 中国源	地市级中文台掉进国际兜底桶
+余姚新闻综合	🇨🇳 中国源	地市级中文台掉进国际兜底桶
+伊犁哈萨克	🇨🇳 中国源	地市级中文台掉进国际兜底桶

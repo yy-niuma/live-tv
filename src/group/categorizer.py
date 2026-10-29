@@ -96,144 +96,204 @@ def _excluded(name_lower: str, group_lower: str) -> bool:
 
 
 # ──────────────────────────────────────────────────────────────
+#  港澳台统一判定（categorize 与 is_hk_region 的**唯一**事实来源）
+#  ------------------------------------------------------------------
+#  设计契约：
+#    _region_category(name, group) 返回某个港澳台分类名（或 None）
+#    is_hk_region(...) <=> _region_category(...) is not None
+#    categorize(...) 命中港澳台时返回的分类 == _region_category(...)
+#  两张表各写一份是历史遗留 bug 的根源（categorize 认、is_hk_region 不认）。
+# ──────────────────────────────────────────────────────────────
+#  顺序敏感：TVBS 必须在 TVB 之前（tvbs 属于台湾 TVBS，不是 TVB）
+HK_TW_MO_RULES = [
+    ("🇹🇼 台湾", [
+        r"\btvbs",                       # TVBS / TVBSNews / TVBS亚洲
+        r"台视", r"台視", r"中视", r"中視", r"民视", r"民視",
+        r"东森", r"東森", r"三立", r"华视", r"華視",
+        r"大爱", r"大愛", r"公视", r"公視", r"非凡", r"中天",
+        r"\bttv\b", r"\bftv\b", r"\bpts\b", r"\bcna\b",
+        r"台湾", r"台灣",
+    ]),
+    ("📺 TVB", [
+        # tvb 后不得紧跟拉丁字母（防 tvbrics / tvbrno 等假 TVB；tvbs 已在上面拦下）
+        r"\btvb(?![a-z])",
+        r"\btvb(?:plus|jade|pearl|j1|j2|x)(?![a-z])",   # 连写形态：TVBPlus/TVBJade...
+        r"\bj2\b", r"\bj1\b",
+        r"tvbanywhere",
+        r"翡翠台", r"明珠台",
+        r"无线电视", r"無線電視", r"无线新闻", r"無線新聞",
+    ]),
+    ("📺 ViuTV", [r"viutv", r"viu\s*tv", r"\bviu\s*6\b", r"\bviu6\b"]),
+    ("📺 RTHK", [r"rthk", r"港台電視", r"港台电视", r"香港電台", r"香港电台"]),
+    ("📺 HOY TV", [r"hoy\s*tv", r"\bhoytv\b", r"\bhoy\b"]),
+    ("📺 Now TV", [
+        # 繁体字形：財經/新聞 必须与简体并列（历史 bug：只写简体导致 Now財經 落兜底）
+        r"now\s*tv", r"nowtv", r"now直播",
+        r"now財經", r"now财经", r"now新聞", r"now新闻", r"nownews",
+        r"\bnow\b[\s\-]*(?:sports|體育|体育|movies?|影|剧|劇|kids|hbo)",
+    ]),
+    ("📺 有线电视", [r"有线电视", r"有線電視", r"开电视", r"開電視",
+                     r"cable\s*tv", r"cable_tv"]),
+    ("🇲🇴 澳门", [
+        r"澳门", r"澳門", r"澳視", r"澳视", r"澳广视", r"澳廣視",
+        r"澳亚卫视", r"澳亞衛視", r"macau", r"\btdm\b",   # TDM = 澳门电台/电视（Teledifusão de Macau）
+    ]),
+]
+
+# 仅影响「是否港澳台地域」、不决定分类的频道族：
+#   凤凰/星空 是香港持牌的境外中文卫视 —— 地域属港，但内容定位是「卫视频道/电影频道」。
+#   这类频道必须进 hk_merged，分类却由 categorize 的卫视/电影块决定。
+_REGION_EXTRA = [
+    r"凤凰卫视", r"鳳凰衛視", r"凤凰香港台", r"phoenix",
+    r"星空卫视", r"星空衛視",
+    r"\bstar\s*tv\b", r"\bstartv\b",   # 加边界：DaystarTV/HmongStarTV 不是星空卫视
+]
+
+# 名字里带港台品牌词、但实为海外分台的（沿用旧版排除表的关键项）
+_REGION_NAME_VETO = [
+    r"\bright\s*now\s*tv\b",      # Right Now TV（美国），命中裸 nowtv
+    r"winnipeg", r"edmonton", r"ontario", r"british columbia", r"\bcanadian?\b",
+]
+
+# 这些分组里的频道即便名字带港澳台字样也不判为港澳台（央视/国际新闻等）
+_REGION_GROUP_VETO = ("央视频道", "央视新闻", "国际频道", "国际新闻", "国际台")
+
+
+def _region_extra(name: str, group: str) -> bool:
+    """仅地域判定（不决定分类）的港澳台频道：凤凰卫视/星空卫视 等。"""
+    full = (name or "").lower() + " " + (group or "").lower()
+    return any(re.search(p, full, re.IGNORECASE) for p in _REGION_EXTRA)
+
+
+def _region_category(name: str, group: str) -> str | None:
+    """港澳台统一判定：返回港澳台分类名，或 None。"""
+    name_lower = (name or "").lower()
+    group_lower = (group or "").lower()
+    full = name_lower + " " + group_lower
+    # 央视/国际新闻分组整体否决（保持原有语义：央视频道组里没有港澳台）
+    if any(v in (group or "").lower() for v in _REGION_GROUP_VETO):
+        return None
+    if any(re.search(p, full, re.IGNORECASE) for p in _REGION_NAME_VETO):
+        return None
+    for cat, patterns in HK_TW_MO_RULES:
+        for p in patterns:
+            if re.search(p, full, re.IGNORECASE):
+                return cat
+    return None
+
+
+# ──────────────────────────────────────────────────────────────
+#  省级关键词（拼音/英文写法，补中文表覆盖不到的名字）
+# ──────────────────────────────────────────────────────────────
+PROVINCE_LATIN = {
+    "📺 北京": [r"beijing"], "📺 上海": [r"shanghai"], "📺 广东": [r"guangdong"],
+    "📺 深圳": [r"shenzhen"], "📺 浙江": [r"zhejiang"], "📺 江苏": [r"jiangsu"],
+    "📺 湖南": [r"hunan"], "📺 安徽": [r"anhui"], "📺 山东": [r"shandong"],
+    "📺 四川": [r"sichuan"], "📺 湖北": [r"hubei"], "📺 福建": [r"fujian"],
+    "📺 陕西": [r"shaanxi"], "📺 黑龙江": [r"heilongjiang"], "📺 吉林": [r"jilin"],
+    "📺 辽宁": [r"liaoning"], "📺 河北": [r"hebei"], "📺 河南": [r"henan"],
+    "📺 江西": [r"jiangxi"], "📺 山西": [r"shanxi"], "📺 内蒙古": [r"neimenggu", r"inner\s*mongolia"],
+    "📺 宁夏": [r"ningxia"], "📺 青海": [r"qinghai"], "📺 甘肃": [r"gansu"],
+    "📺 新疆": [r"xinjiang"], "📺 西藏": [r"xizang", r"tibet"],
+    "📺 贵州": [r"guizhou"], "📺 云南": [r"yunnan"], "📺 广西": [r"guangxi"],
+    "📺 海南": [r"hainan"], "📺 重庆": [r"chongqing"], "📺 天津": [r"tianjin"],
+}
+
+# 地市级/县市级中文台特征后缀（命中即判 🇨🇳 中国源，而不是掉进国际兜底）
+CJK_CITY_SUFFIX = (
+    "新闻综合", "综合频道", "新闻频道", "新闻台", "电视台", "广播电视台",
+    "公共频道", "经济频道", "都市频道", "生活频道", "科教频道", "文旅频道",
+    "民生频道", "法制频道", "法治频道", "少儿频道", "文体频道", "影视文艺",
+    "综合", "资讯",
+)
+
+# 纯中文名里出现这些词说明是「内容」而不是「地方台」，不做地市台推断
+CONTENT_WORDS = (
+    "卫视", "港澳", "剧", "影", "春晚", "儿童", "少儿", "动画", "动漫", "纪录",
+    "音乐", "歌", "曲", "戏曲", "相声", "评书", "球", "赛", "游戏", "购物",
+    "直播", "点播", "回看", "试看", "测试", "成人", "教育", "考研", "证券",
+    "财经", "新闻", "综合", "生活", "文化", "旅行", "美食",   # 这些若单独出现按地市台处理，见下
+)
+# 与 CJK_CITY_SUFFIX 重叠的词从黑名单里剔除（上表末尾几项仅供 _looks_like_city 判断用）
+_LOCAL_OK_WORDS = ("新闻", "综合", "生活", "文化", "财经", "教育")
+CONTENT_WORDS_STRICT = tuple(w for w in CONTENT_WORDS if w not in _LOCAL_OK_WORDS)
+
+# 中文 group-title → 分类（源里大量中文分组名，英文映射表覆盖不到）
+# 只收「语义明确」的中文分组；綜合/新聞/綜藝/運動 这类在实测语料里被源站误标
+# （group=綜合 下多为印度/中东频道），刻意不收，避免引入噪声。
+GROUP_TITLE_ZH_MAPPING = {
+    "电影": "🎬 电影频道",          # 简体 '电影' 组下实测全是 CHC/1905 这类真电影频道
+    "地方频道": "🇨🇳 中国源",
+    "直播中国": "🇨🇳 中国源",
+    "春晚频道": "🎭 综艺频道",
+    "咪咕赛事": "⚽ 体育频道",
+    "点播电影": "🎬 电影频道",
+    "戏曲频道": "🎭 综艺频道",
+    "纪录频道": "📺 纪录片",
+    "动画频道": "🧸 儿童频道",
+    "🪁动画频道": "🧸 儿童频道",
+}
+
+# ──────────────────────────────────────────────────────────────
+#  央视频道
+# ──────────────────────────────────────────────────────────────
+#  \b 在 CJK 前不成立（CJK 属 \w），历史 bug：cctv1综合 / cctv10科教 全掉进兜底。
+# 这里用 (?![a-z]) 而不是 \b：数字后紧跟中文/符号都算命中，只挡拉丁字母后缀。
+CCTV_RE = re.compile(
+    r"\bcctv[\s\-_]*\+?\d{1,2}(?:plus|\+|k)?(?![a-z])"
+    r"|\bcctv(?![a-z0-9])"
+    r"|\bcgtn(?![a-z])",
+    re.IGNORECASE,
+)
+CETV_RE = re.compile(r"\bcetv[\s\-_]*\d{0,2}(?![a-z])", re.IGNORECASE)
+
+_CJK_ONLY_RE = re.compile(r"^[\u4e00-\u9fff]+$")
+_CITY_SUFFIX_RE = re.compile("(?:" + "|".join(CJK_CITY_SUFFIX) + ")$")
+_FOREIGN_REGION_RE = re.compile(r"卫视|港澳台|香港|台湾|台灣|澳门|澳門|日本|韩国|美國|美国")
+
+
+def _looks_like_cn_local(name: str, group: str) -> bool:
+    """判断中文地市/县市台（兜底桶污染源）。
+
+    三级判据，命中任一即认为是地方台：
+      1. 中文名以地市台特征后缀结尾（新闻综合/综合频道/电视台…）；
+      2. 纯中文名、2-8 字、且不含「内容类」词（剧/影/春晚/动画…）；
+      3. group 是「地方频道 / 直播中国」这类明确的地方台分组。
+    刻意保守：含 卫视/港澳台/外国地区 的名字一律不做地方台推断。
+    """
+    n = (name or "").strip()
+    if not n:
+        return False
+    if _FOREIGN_REGION_RE.search(n):
+        return False
+    if _CITY_SUFFIX_RE.search(n):
+        return True
+    g0 = (group or "").strip()
+    if _CJK_ONLY_RE.match(n) and 2 <= len(n) <= 8:
+        if not any(w in n for w in CONTENT_WORDS_STRICT):
+            # group 已经指明了内容类型（动画频道/春晚频道…）时，交给映射表，不做地市台猜测
+            if not g0 or (g0 not in GROUP_TITLE_ZH_MAPPING and g0 not in GROUP_TITLE_EN_MAPPING):
+                return True
+    g = group or ""
+    if any(k in g for k in ("地方频道", "直播中国")):
+        return True
+    return False
+
+
+# ──────────────────────────────────────────────────────────────
 #  is_hk_region — 保留（其他模块仍用）
 # ──────────────────────────────────────────────────────────────
-def is_hk_region(name: str, group: str, cat: str = None) -> bool:
+def is_hk_region(name: str, group: str, cat: str | None = None) -> bool:
     """判断是否为港台地区频道 (HK/TW/MO)
-    
+
+    与 categorize() 共用 HK_TW_MO_RULES，保证「分类为港澳台」<=>「进 hk_merged」。
+
     Args:
         name: channel name
         group: group-title from m3u
-        cat: optional category (from categorize()) for exclusion
+        cat: 兼容旧签名保留；判定不再依赖它（避免循环依赖）
     """
-    name_lower, group_lower = name.lower(), (group or "").lower()
-    full_text = name_lower + " " + group_lower
-
-    hk_exact = [
-        r"hkdtmb", r"香港台", r"香港電視",
-        # TVB：只匹配确切的 TVB 品牌关键词，不接受任意拉丁字母后缀
-        r"\btvbjade\b", r"\btvbpearl\b", r"\btvbj2\b", r"\btvbj1\b", r"\bj2\b",
-        r"翡翠台", r"明珠台",
-        # TVB 中文子频道（精确关键词，防止 tvb + 任意字母 误匹配）
-        r"TVB生活台", r"TVB经典台", r"TVB亚洲剧台", r"TVB娱乐新闻",
-        r"TVB星河", r"TVB无线新闻", r"TVB无线星河", r"TVB无线财经",
-        r"TVB Plus", r"TVB\+\s*\d*", r"\bTVB\+\b",
-        r"TVB亚洲台", r"凤凰香港台", r"華麗翡翠台", r"tvb黄金華劇",
-        r"tvb華麗", r"tvb黄金", r"tvb星河",
-        # 其他香港台
-        r"viutv", r"viu tv", r"viu6", r"viu 6", r"\bVIUTV\b",
-        r"rthk", r"rthk tv", r"港台電視", r"港台电视", r"香港电台",
-        r"hoy tv", r"hoytv",
-        r"now tv", r"nowtv", r"now直播", r"now财经", r"nownews",
-        r"有线电视", r"开电视", r"cable tv", r"cable_tv",
-        r"凤凰卫视", r"phoenix tv",
-        r"无线电视", r"无线新闻", r"星空卫视",
-    ]
-    tw_exact = [
-        r"tvbs", r"tvbs新闻",
-        r"台视主频", r"台視主頻",
-        r"中视综合台", r"中視綜合台",
-        r"民视无线台", r"民視無限",
-        r"东森电视", r"東森電視", r"东森新闻", r"東森新聞",
-        r"三立台湾台", r"三立台灣台",
-        r"华视", r"華視", r"中视", r"中視", r"民视", r"民視",
-        r"台视", r"台視", r"大爱", r"公视", r"公視",
-        r"\\bttv\b", r"\\bftv\b", r"\\bpts\b", r"\\bcna\b",
-    ]
-    mo_exact = [r"澳门", r"澳視", r"\\bmacau\b", r"澳广视", r"澳亚卫视"]
-
-    exclude = [
-        # ── 中国官方媒体 ─────────────────────────────────────────────
-        r"\bcctv\b", r"\bcetv\b", r"教育台",
-        r"\bcctv[_\- ]", r"\bcetv[_\- ]",
-        r"\bbbc\b", r"\bcnn\b",
-        r"\bal jazeera\b", r"\baljazeera\b", r"\bfrance 24\b",
-        r"bloomberg", r"cnbc", r"euronews",
-        # ── 地区性频道（亚洲/欧洲/拉美） ────────────────────────────
-        r"16tv", r"16 tv",
-        r"african", r"africable",
-        r"budapest",
-        r"bogota", r"brasil", r"brazil",
-        r"\bktv\b",
-        r"\bmtv\b", r"\bm tv\b",
-        r"star tv", r"startv",
-        r"daystar",
-        r"café", r"cafe",
-        r"国际频道", r"国际新闻",
-        r"央视频道", r"央视新闻",
-        # ── Now TV 北美/其他分台 ──────────────────────────────────────
-        r"\bnownews\b", r"\brightnowtv\b",
-        r"winnipeg", r"edmonton", r"ontario", r"british columbia",
-        r"\bcanada\b", r"canadian",
-        r"\busa\b", r"\bus\b",
-        # ── 非 HK 的 TVB 变体（关键：用负向前瞻确保只排除假 TVB）──────
-        # tvb 后不接受任何拉丁字母后缀（只允许中文/空格/符号开头）
-        # 但 tvbs 除外（台湾 TVBS 新闻台）
-        r"(?<!\btvbs)\btvb(?=[a-z])",   # tvb在小写字母前，但前面不是 tvbs
-        # 已知假 TVB 精确匹配
-        r"\btvbrics\b", r"\btvbrno\b", r"\btvbrusque\b",
-        r"\btvbudakalasz\b", r"\btvbuzau\b",
-        r"\btvblossom\b",
-        # 排除 tvb + 2个以上拉丁字母（非 tvbs/tvbplus）
-        r"\btvb(?!(j1|j2|jade|pearl|plus|Plus))[a-z]{2,}",  # tvb + 非TVB子频道拉丁后缀
-        # .tv 域名结尾（兜底）
-        # .tv 域名结尾（兜底）
-        r"\.tv$",
-    ]
-
-    # ── 优先：TVB 精确关键词（必须先于 exclude 检查，避免被通用 Latin 排除规则误杀）──
-    # 放在 exclude 之前，专门保护真实 TVB 子频道
-    tvb_kw_exact = [
-        r"\btvbjade\b", r"\btvbpearl\b", r"\btvbj2\b", r"\btvbj1\b", r"\bj2\b",
-        r"\btvbplus\b", r"\bTVBPlus\b",
-        r"tvb plus", r"tvb\ plus",
-        # TVBS 是台湾频道，必须在 exclude 之前匹配（否则会被 \btvb(?=[a-z]) 误杀）
-        r"\btvbs\b", r"tvbs新闻", r"tvbs asia", r"tvbs亚洲台",
-        r"翡翠台", r"明珠台",
-        r"TVB生活台", r"TVB经典台", r"TVB亚洲剧台", r"TVB娱乐新闻",
-        r"TVB星河", r"TVB无线新闻", r"TVB无线星河", r"TVB无线财经",
-        r"TVB亚洲台", r"凤凰香港台", r"華麗翡翠台", r"tvb黄金華劇",
-        r"tvb華麗", r"tvb黄金", r"tvb星河", r"tvb生活台",
-        r"TVB\+\s*\d*",
-    ]
-    for p in tvb_kw_exact:
-        if re.search(p, full_text, re.IGNORECASE):
-            return True
-
-    # ── 排除：非 HK/TW/MO 的通用规则 ─────────────────────────────
-    for p in exclude:
-        if re.search(p, full_text):
-            return False
-
-    # Explicitly reject CCTV/CETV (must check before positive matches)
-    if re.search(r"\bcctv[\-_\s]?\d*\b", name_lower) or re.search(r"\bcetv[\-_\s]?\d*\b", name_lower):
-        return False
-    if "教育台" in name or "央视" in name:
-        return False
-    # Reject 央视频道 / 央视新闻
-    if re.search(r"央视频道|央视新闻", full_text):
-        return False
-
-    # ── 核心正测：HK/TW/MO 精确匹配（优先于 non_hk_groups 排除）──
-    for p in hk_exact + tw_exact + mo_exact:
-        if re.search(p, full_text):
-            return True
-
-    # ── 排除：非 HK/TW/MO 分组 ─────────────────────────────────
-    non_hk_groups = [
-        "央视频道", "国际频道", "国际新闻", "新闻财经",
-        "电影频道", "音乐频道", "儿童频道", "体育频道",
-        "纪录片", "综艺频道", "地方频道",
-        "欧洲", "北美", "拉丁美洲", "中东", "非洲", "大洋洲",
-        "日本", "韩国", "亚洲（东南亚）", "亚洲（其他）", "印度",
-        "🌐 国际",
-        "📡 卫视频道",   # 卫视频道分组中无 HK/TW/MO 关键词的频道全部排除
-    ]
-    check_text = (group or "") + " " + (cat or "")
-    if any(g in check_text for g in non_hk_groups):
-        return False
-
-    return False
+    return _region_category(name, group) is not None or _region_extra(name, group)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -363,100 +423,65 @@ CHANNEL_REGION_PATTERNS = [
 #  所有无法精确匹配的频道统一归入 "🌐 国际"
 # ──────────────────────────────────────────────────────────────
 def recategorize_others(name: str, group: str, logo: str = "") -> str:
-    """对"其他"分组中的未知频道进行二次分类。
+    """对「其他」分组中的未知频道进行二次分类（兜底链路）。
 
-    只保留：
-    1. Logo URL 国家/地区识别（优先）
-    2. 省级频道精确匹配（使用 PROVINCE_KEYWORDS）
-    3. 港澳台频道（is_hk_region）
-
-    其余全部归入 "🌐 国际"。
+    顺序：Logo 地区 → 港澳台（与 categorize 共用表）→ 省级（中文/拼音/中文分组名）
+          → 中文 group-title 映射 → 英文 group-title 映射 → 中国地市台 → 音乐 → 国际兜底
     """
     name_lower, group_lower = name.lower(), (group or "").lower()
     logo_lower = logo.lower() if logo else ""
 
     # ── 1. Logo URL 识别 ────────────────────────────────────
     if logo_lower:
-        for pattern, region in LOGO_REGION_PATTERNS:
+        for pattern, logo_region in LOGO_REGION_PATTERNS:
             if pattern.lower() in logo_lower:
-                return region
+                return logo_region
 
-    # ── 2. 省级频道（复用 PROVINCE_KEYWORDS）─────────────────
+    # ── 2. 港澳台（统一判定，不再重复一套关键词）──────────────
+    region = _region_category(name, group)
+    if region:
+        return region
+
+    # ── 3. 省级频道（中文表 + 拼音表 + 中文分组名「XX频道」）──
     for cat, patterns in PROVINCE_KEYWORDS.items():
         if _match(name_lower, group_lower, patterns):
             return cat
+    for cat, patterns in PROVINCE_LATIN.items():
+        if _match(name_lower, group_lower, patterns):
+            return cat
+    for cat in PROVINCE_KEYWORDS:
+        short = cat.replace("📺 ", "").strip()
+        if short and (short + "频道") in (group or ""):
+            return cat
 
-    # ── 3. 港澳台 — 直接判断返回正确地区分类，避免循环调用 ─────
-    if is_hk_region(name, group):
-        name_lower, group_lower = name.lower(), (group or "").lower()
-        full_text = name_lower + " " + group_lower
-        # 台湾关键词（优先，因为台湾有最多的频道）
-        tw_kw = [r"tvbs", r"台视", r"台視", r"中视", r"中視", r"民视", r"民視",
-                 r"东森", r"東森", r"三立", r"华视", r"華視", r"大爱", r"公视",
-                 r"公視", r"非凡", r"ttv\\b", r"ftv\\b", r"pts\\b", r"cna\\b",
-                 r"台湾", r"台灣", r"Taiwan"]
-        if any(re.search(p, full_text, re.IGNORECASE) for p in tw_kw):
-            return "🇹🇼 台湾"
-        # 澳门关键词
-        mo_kw = [r"澳门", r"澳視", r"macau", r"澳广视", r"澳亚卫视"]
-        if any(re.search(p, full_text, re.IGNORECASE) for p in mo_kw):
-            return "🇲🇴 澳门"
-        # 香港：TVB / ViuTV / RTHK / HOY / Now / Cable / 凤凰卫视（用更精确的模式）
-        hk_kw = [r"\btvbjade\b", r"\btvbpearl\b", r"\btvbj2\b", r"\btvbj1\b",
-                 r"\btvbs\b",
-                 r"翡翠台", r"明珠台",
-                 r"viutv", r"viu tv", r"rthk", r"hoy tv", r"hoytv",
-                 r"nowtv", r"now tv", r"now直播", r"now财经",
-                 r"凤凰卫视", r"phoenix", r"有线", r"cable", r"cable_tv",
-                 r"港台電視", r"港台电视", r"港台", r"香港电台",
-                 r"星空卫视", r"星岛", r"无线新闻", r"无线电视"]
-        if any(re.search(p, full_text, re.IGNORECASE) for p in hk_kw):
-            return "📺 TVB"
-        # 无法进一步区分 → 用 group 字段猜（排除 MTV/MUSIC 等无关分组）
-        non_hk_grp = ["tvb", "viutv", "viu tv", "rthk", "hoy tv",
-                      "台湾", "Taiwan", "澳门", "macau",
-                      "cctv", "bbc", "cnn", "cnbc",
-                      "espn", "hbo", "cinemax", "fox",
-                      "anime", "kids", "kids tv", "children",
-                      "music", "musique", "MTV", "MTV ", "music tv",
-                      "sports", "sport", "news",
-                      "movie", "film", "cinema",
-                      "documentary", "docu",
-                      "religion", "faith",
-                      "shopping", "mall",
-                      "weather", "travel",
-                      "food", "cooking",
-                      "gaming", "game",
-                      "education", "learn",
-                      "kids", "动画", "少儿", "儿童"]
-        if not any(ng in group_lower for ng in non_hk_grp):
-            if group_lower and group_lower != "others":
-                return "📺 TVB"  # 未分类的 group 但不是明显的非 HK → 暂归 HK
-        if "台湾" in group or "Taiwan" in group:
-            return "🇹🇼 台湾"
-        if "澳门" in group or "macau" in group.lower():
-            return "🇲🇴 澳门"
-        # MTV/MUSIC group → 音乐频道
-        if "mtv" in group_lower or "music" in group_lower or "musique" in group_lower:
-            return "🎵 音乐"
-        # 保底：未知
-        return "🌐 国际"
 
-    # ── 4. 英文 group-title 映射（iptv-org / 英文播放列表）────────
+    # ── 4. 中文 group-title 映射（源站大量中文分组名，英文表覆盖不到）──
+    g_raw = (group or "").strip()
+    if g_raw:
+        for cand in (g_raw, g_raw.lstrip("☘️🪁🌊 ").strip()):
+            if cand in GROUP_TITLE_ZH_MAPPING:
+                return GROUP_TITLE_ZH_MAPPING[cand]
+
+    # ── 5. 英文 group-title 映射（iptv-org / 英文播放列表）────────
     if group_lower and group_lower != "others":
-        # 精确匹配
         if group_lower in GROUP_TITLE_EN_MAPPING:
             return GROUP_TITLE_EN_MAPPING[group_lower]
-        # 半精确匹配（取第一段，如 "Animation;Kids" → "animation"）
         first = group_lower.split(";")[0].strip()
         if first in GROUP_TITLE_EN_MAPPING:
             return GROUP_TITLE_EN_MAPPING[first]
-        # 含分号的组合匹配
         for key in GROUP_TITLE_EN_MAPPING:
             if key in group_lower and ";" in group_lower:
                 return GROUP_TITLE_EN_MAPPING[key]
 
-    # ── 默认：未能精确识别的频道 ─────────────────────────────
+    # ── 6. 中国地市/县市台（兜底桶污染源，判据见 _looks_like_cn_local）──
+    if _looks_like_cn_local(name, group):
+        return "🇨🇳 中国源"
+
+    # ── 7. 音乐（旧代码返回 '🎵 音乐'，与 categorize 的 '🎵 音乐频道' 不一致，已统一）──
+    if any(k in group_lower for k in ("mtv", "music", "musique")):
+        return "🎵 音乐频道"
+
+    # ── 8. 默认：未能精确识别的频道 ─────────────────────────
     return "🌐 国际"
 
 
@@ -470,95 +495,61 @@ def categorize(name: str, group: str, logo: str = "") -> str:
     full_text = name_lower + " " + group_lower
 
     # ── 1. 央视频道 ──────────────────────────────────────────
-    if re.search(r"\bcctv[\-_ ]?(\d+|news|english|4k|8k|15|16|17)\b", full_text):
+    #  用 CCTV_RE / CETV_RE：不再依赖 \b（\b 在「数字+中文」边界不成立，
+    #  历史 bug：cctv1综合 / cctv10科教 / cctv5plus 全部漏判）。
+    if CCTV_RE.search(full_text):
         return "📺 央视频道"
-    if re.search(r"\bcetv[\-_ ]?(\d+|1|2|3|4)\b", full_text):
+    if CETV_RE.search(full_text) or "教育台" in full_text:
         return "📺 央视频道"
-    if re.search(r"\bcetv\b", name_lower) or "教育台" in full_text:
-        return "📺 央视频道"
-    # 裸 CCTV 兜底（排除 BBC/ABC/CNN 等）
-    if re.search(r"\bcctv\b", name_lower) and not any(
-        kw in full_text for kw in ["bbc", "abc ", "cnn", "al jazeera", "ntv"]
-    ):
+    # 源站已经明确标成「央视频道」分组：世界地理/兵器科技 这类无 cctv 字样的央视专业频道靠这条兜住
+    if "央视频道" in (group or "") or "央视" in name:
         return "📺 央视频道"
 
-    # ── 2. 各省频道 ──────────────────────────────────────────
+    # ── 2. 各省频道（中文表 + 拼音表）─────────────────────────
     for cat, patterns in PROVINCE_KEYWORDS.items():
         if _match(name_lower, group_lower, patterns):
             return cat
+    for cat, patterns in PROVINCE_LATIN.items():
+        if _match(name_lower, group_lower, patterns):
+            return cat
+    for cat in PROVINCE_KEYWORDS:
+        short = cat.replace("📺 ", "").strip()
+        if short and (short + "频道") in (group or ""):
+            return cat
 
-    # ── 3. 台湾（必须在卫视频道之前！避免"华视"被境外卫星逻辑先捕获） ──
-    tw_kw = [
-        r"tvbs", r"tvbs新闻",
-        r"台视", r"台視", r"台视主频", r"台視主頻",
-        r"中视", r"中視", r"中视综合台", r"中視綜合台",
-        r"民视", r"民視", r"民视无线台", r"民視無限",
-        r"东森", r"東森", r"东森新闻", r"東森新聞",
-        r"三立台湾", r"三立台灣",
-        r"华视", r"華視",
-        r"大爱", r"公视", r"公視",
-        r"非凡", r"非視",
-        r"\bttv\b", r"\bftv\b", r"\bpts\b", r"\bcna\b",
-        r"台湾台", r"台灣台",
-        r"台湾", r"台灣",
-    ]
-    if _match(name_lower, group_lower, tw_kw):
-        return "🇹🇼 台湾"
+    # ── 3. 港澳台（与 is_hk_region 共用 HK_TW_MO_RULES，唯一事实来源）──
+    region = _region_category(name, group)
+    if region:
+        return region
 
     # ── 4. 卫视频道（境外/境外中文）──────────────────────────
-    # 注意：不含"华视"（已在上一步归入台湾）
+    #  凤凰/星空 属于「境外卫视」而非港澳台本地台：分类为卫视，且 is_hk_region=False，
+    #  两边口径一致（历史 bug：is_hk_region 认凤凰卫视、categorize 不认）。
     overseas_satellite = [
-        r"凤凰卫视", r"phoenix",
-        r"星空卫视", r"star tv", r"startv",
+        r"凤凰卫视", r"鳳凰衛視", r"phoenix",
+        r"星空卫视", r"星空衛視", r"\bstar\s*tv\b", r"\bstartv\b",
+        r"凤凰香港台",
         r"法国中文", r"法国电视",
         r"中文电视", r"中文台",
-        r"亚洲电视", r"atv",
+        r"亚洲电视", r"亞洲電視", r"\batv\b",     # \batv\b：不再误伤 AricaTV/DunyaTV/Catv
         r"卫视中文",
+        r"卫视(?!电影|電影|体育|體育)",   # 兜住无省份关键词的境内卫视；但不抢卫视电影/体育
     ]
     if _match(name_lower, group_lower, overseas_satellite):
         return "📡 卫视频道"
 
-    # ── 5. 港澳台其他 ─────────────────────────────────────────
-    # TVB
-    # TVB 精确匹配（TVB 后面必须跟空格/连字符/数字，或完全是 TVB）
-    tvb_pattern = r"(^tvb($|[\s\-\d])|\btvb翡翠|\btvb明珠|\btvbjade|\btvbpearl|\btvbj2|\btvbj1|\btvb无线|\btvb星河|\btvb娱乐|\btvb生活|\btvbplus|\btvbplus\b|\btvb经典|\btvb亚洲|\bj2\b|\bj1\b|\b翡翠台|\b明珠台|\bTVBJ2\b|\bTVBJ1\b)"
-    if re.search(tvb_pattern, name_lower, re.IGNORECASE):
-        return "📺 TVB"
-
-    # ViuTV
-    if _match(name_lower, group_lower, [r"viutv", r"viu tv", r"viu6", r"viu 6"]):
-        return "📺 ViuTV"
-
-    # RTHK
-    if _match(name_lower, group_lower, [r"rthk", r"rthk tv", r"港台電視", r"香港電台", r"香港电台"]):
-        return "📺 RTHK"
-
-    # HOY TV
-    if _match(name_lower, group_lower, [r"hoy tv", r"hoytv", r"hoy"]):
-        return "📺 HOY TV"
-
-    # Now TV
-    if _match(name_lower, group_lower, [r"now tv", r"nowtv", r"now直播", r"now财经", r"nownews"]):
-        return "📺 Now TV"
-
-    # 有线电视
-    if _match(name_lower, group_lower, [r"有线电视", r"开电视", r"cable tv", r"cable_tv"]):
-        return "📺 有线电视"
-
-    # ── 澳门 ─────────────────────────────────────────────────
-    if _match(name_lower, group_lower, [r"澳门", r"澳視", r"macau", r"澳广视", r"澳亚卫视"]):
-        return "🇲🇴 澳门"
-
     # ── 5. 电影频道 ───────────────────────────────────────────
     movie_kw = [
-        # 英文电影频道（不用\b，因为中文旁边不算boundary）
-        r"hbo", r"cinemax", r"amc", r"paramount", r"mgm",
+        # 品牌词：必须带边界（实测 NHBollyGold/KhushbooBangla 被裸 'hbo' 误伤、
+        # IAmChannel/IslamChannel 被裸 'amc' 误伤）
+        r"\bhbo(?![a-z])", r"\bcinemax(?![a-z])", r"\bamc(?![a-z])",
+        r"\bparamount\b", r"\bmgm(?![a-z])",
         r"star movies", r"fox movies",
-        r"cinema",                       # cinema 不加\b，避免被 cinemax 意外匹配
+        r"cinema",                       # cinema 不加 \b：PlutoTVCinemaItaliano 这类是真影院台
         r"电影频道", r"电影台", r"好莱坞电影",
         r"fx movie", r"fxmovie",
         r"好莱坞", r"影视", r"影城",
-        r"movie",                        # 英文 movie
+        r"movie",                        # 英文 movie：内容词，高召回优先，不加边界
         r"凤凰电影", r"卫视电影",
     ]
     if _match(name_lower, group_lower, movie_kw):
@@ -567,7 +558,7 @@ def categorize(name: str, group: str, logo: str = "") -> str:
     # ── 6. 音乐频道 ───────────────────────────────────────────
     music_kw = [
         r"channel v", r"channelv",
-        r"mtv", r"m tv",
+        r"\bmtv(?![a-z])", r"m tv",
         r"音乐电视", r"音乐频道", r"音乐台",
         r"vmv", r"v mv",
         r"华语音乐", r"中文音乐", r"流行音乐",
@@ -575,12 +566,23 @@ def categorize(name: str, group: str, logo: str = "") -> str:
     if _match(name_lower, group_lower, music_kw):
         return "🎵 音乐频道"
 
-    # ── 7. 国际频道 ───────────────────────────────────────────
+    # ── 7. 国际新闻品牌（必须先于「国际频道」宽桶：BBC World News 属新闻，不是泛国际）──
+    #  只收「品牌+国际/世界版」的确定写法；地区版（CNN Portugal / CNN Brasil）留在国际频道。
+    news_strong = [
+        r"\bcnn\s+(?:international|intl)\b",
+        r"\bbbc\s+(?:world\s*news|world|news)\b",
+    ]
+    if _match(name_lower, group_lower, news_strong):
+        return "📰 新闻财经"
+
+    # ── 8. 国际频道 ───────────────────────────────────────────
     intl_kw = [
         r"bbc", r"cnn", r"al jazeera", r"aljazeera",
-        r"nhk", r"tbs",
+        r"\bnhk\b",
+        # tbs 已移除：TBS（Turner）是美国综合娱乐网，不该被「国际频道」宽桶捕获
         r"france 24", r"france24",
-        r"dw", r"trt", r"tv5", r"tv5monde",
+        r"\bdw\b", r"\btrt\b", r"\btv5\b", r"tv5monde",
+        # tv5 加边界：VTV5TayNamBo / XinjiangTV5 / SuperTV55 不再被误判
         r"澳大利亚", r"澳洲电视",
         r"德国电视", r"德国之声",
         r"意大利", r"西班牙电视",
@@ -593,26 +595,27 @@ def categorize(name: str, group: str, logo: str = "") -> str:
     if _match(name_lower, group_lower, intl_kw):
         return "🌐 国际频道"
 
-    # ── 8. 新闻财经 ──────────────────────────────────────────
+    # ── 9. 新闻财经 ──────────────────────────────────────────
     news_kw = [
         r"bloomberg", r"cnbc",
         r"财经", r"金融", r"证券",
         r"新闻频道", r"新闻台",
-        r"cnn", r"bbc news",
+        r"\bcnn\b", r"bbc news",
         r"半岛新闻", r"半岛电视台",
         r"euronews",
         r"香港新闻", r"香港财经",
         r"凤凰财经", r"凤凰新闻",
-        r"voa", r"美国之音",
+        r"\bvoa\b", r"美国之音",
     ]
     if _match(name_lower, group_lower, news_kw):
         return "📰 新闻财经"
 
-    # ── 9. 儿童频道 ──────────────────────────────────────────
+    # ── 10. 儿童频道 ─────────────────────────────────────────
     kids_kw = [
         r"cartoon network", r"cartoon",
         r"disney channel", r"disney",
-        r"nickelodeon", r"nick",
+        r"\bnick(?:elodeon|jr|toons)?(?![a-z])",
+        r"kids",                        # Discovery Kids / Kids TV 不再因为「无 kids 规则」掉到纪录片
         r"少儿频道", r"儿童频道", r"少儿台",
         r"儿童动画", r"动漫频道", r"卡通频道",
         r"baby tv", r"babytv",
@@ -622,7 +625,7 @@ def categorize(name: str, group: str, logo: str = "") -> str:
     if _match(name_lower, group_lower, kids_kw):
         return "🧸 儿童频道"
 
-    # ── 10. 综艺频道 ──────────────────────────────────────────
+    # ── 11. 综艺频道 ─────────────────────────────────────────
     variety_kw = [
         r"综艺", r"综合台", r"综合频道",
         r"娱乐频道", r"娱乐台", r"娱乐节目",
@@ -634,7 +637,7 @@ def categorize(name: str, group: str, logo: str = "") -> str:
     if _match(name_lower, group_lower, variety_kw):
         return "🎭 综艺频道"
 
-    # ── 11. 体育频道 ──────────────────────────────────────────
+    # ── 12. 体育频道 ─────────────────────────────────────────
     sport_kw = [
         r"espn", r"espn2",
         r"fox sports", r"foxsports",
@@ -646,7 +649,7 @@ def categorize(name: str, group: str, logo: str = "") -> str:
         r"赛车", r"搏击", r"格斗",
         r"直播频道", r"直播台",
         r"卫视体育", r"体育新闻",
-        r"nba", r"cba",
+        r"\bnba\b", r"\bcba\b",          # 加边界：ATNBangla / CBCTelevisionCBAT-DT 不再误判
         r"欧冠", r"英超", r"意甲", r"西甲", r"德甲", r"法甲",
         r"中超", r"亚冠",
         r"奥运", r"体育赛事",
@@ -654,7 +657,7 @@ def categorize(name: str, group: str, logo: str = "") -> str:
     if _match(name_lower, group_lower, sport_kw):
         return "⚽ 体育频道"
 
-    # ── 12. 纪录片 ────────────────────────────────────────────
+    # ── 13. 纪录片 ───────────────────────────────────────────
     doc_kw = [
         r"discovery", r"national geographic", r"nat geo",
         r"地理频道", r"探索频道", r"探索",
@@ -666,5 +669,9 @@ def categorize(name: str, group: str, logo: str = "") -> str:
     if _match(name_lower, group_lower, doc_kw):
         return "📺 纪录片"
 
-    # ── 13. 未能分类 → 其他（二次分类）─────────────────────────
+    # ── 14. 中国地市/县市台（兜底桶最大污染源：6829 条「🌐 国际」里绝大多数是它）──
+    if _looks_like_cn_local(name, group):
+        return "🇨🇳 中国源"
+
+    # ── 15. 未能分类 → 其他（二次分类）─────────────────────────
     return recategorize_others(name, group, logo)

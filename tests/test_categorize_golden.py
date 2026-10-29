@@ -233,7 +233,12 @@ GOLDEN_CASES = [
     _case("电视剧场", "🎭 综艺频道", False),
     _case("曲艺频道", "🎭 综艺频道", False),
     # ── 国际 ──────────────────────────────────────────────────
-    _case("BBC World News", "🌐 国际频道", False),
+    # 裁决（2026-10-29 分组逻辑重构）：BBC World News 是 24 小时新闻台，
+    # 归 📰 新闻财经 比 🌐 国际频道 更准确，且与 scripts/categorize_dataset/known_bugs.tsv
+    # 的要求一致，故按本文件自己的规则（"合理 → 写进本文件做硬断言"）改锚定值。
+    # 遗留不一致：CNN 仍归 🌐 国际频道（"国际新闻品牌"规则只覆盖 bbc news / bbc world news），
+    # 见 docs/categorize-improvement-proposal.md 的残留问题清单。
+    _case("BBC World News", "📰 新闻财经", False),
     _case("CNN", "🌐 国际频道", False),
     _case("NHK World", "🌐 国际频道", False),
     _case("DW", "🌐 国际频道", False),
