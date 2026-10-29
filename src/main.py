@@ -12,15 +12,20 @@ from src.validator import Validator
 from src.grouper import Grouper
 from src.generator import Generator
 from src.lib.cache import SimpleCache as Cache
+from src.lib import stream_health
 
 
 async def run(config_dir: str = None, output_dir: str = None, use_cache: bool = True,
-              skip_validation: bool = False, skip_fetch: bool = False, fetch_timeout: int = 90):
+              skip_validation: bool = False, skip_fetch: bool = False, fetch_timeout: int = 90,
+              health_file: str = None):
     """运行完整流程
 
     Args:
         skip_fetch: 跳过抓取步骤，使用缓存数据（无缓存则报错）
         fetch_timeout: 抓取超时秒数（默认90秒）
+        health_file: `{url: bool}` 实测可播快照（`check_streams.py --health-out` 的产物）。
+            提供时合并同名频道会优先挑实测能播的链路；不提供则退化为只按 CDN 白名单排序。
+            详见 src/lib/stream_health.py。
     """
     print("=" * 60)
     print("IPTV 抓取、验证、分组、生成工具")
@@ -92,7 +97,11 @@ async def run(config_dir: str = None, output_dir: str = None, use_cache: bool = 
 
     # 3. 分组
     print("\n[Step 3/4] 分组频道...")
-    grouper = Grouper(config)
+    health = stream_health.load(health_file) if health_file else stream_health.load()
+    if health:
+        good = sum(1 for v in health.values() if v)
+        print(f"[Health] 载入 {len(health)} 条实测结果（可播 {good} / 不可播 {len(health) - good}）")
+    grouper = Grouper(config, health=health)
     grouped = grouper.group(valid_channels)
 
     # 统计各分组频道数
@@ -146,6 +155,9 @@ def main():
     parser.add_argument("--skip-validation", action="store_true", help="跳过 URL 验证")
     parser.add_argument("--skip-fetch", action="store_true",
                         help="跳过抓取步骤，使用缓存数据（无缓存则报错）")
+    parser.add_argument("--health-file", default=None,
+                        help="实测可播快照 {url: bool}（check_streams.py --health-out 的产物）；"
+                             "不传则读 config/stream_health.json（若存在）")
     parser.add_argument("--fetch-timeout", type=int, default=90,
                         help="抓取超时秒数（默认90秒）")
     args = parser.parse_args()
@@ -157,6 +169,7 @@ def main():
         skip_validation=args.skip_validation,
         skip_fetch=args.skip_fetch,
         fetch_timeout=args.fetch_timeout,
+        health_file=args.health_file,
     ))
 
     if result is None:

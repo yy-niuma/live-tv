@@ -13,6 +13,8 @@
 | GitHub 代理域名已死 | HTTP 连接失败（`curl` 返回 `000`，0.001s 秒断） | 2 |
 | 源站停服 | 两个域名都 20s 超时 | 1 |
 
+修复后（2026-10-29 再加 6 个源）25 个启用源里：**18 个 m3u + 7 个 markdown**，0 个 `empty`。
+
 复现命令：
 
 ```console
@@ -27,9 +29,9 @@ $ .venv/bin/python scripts/check_sources.py
 
 | | 修复前 | 修复后 |
 |---|---:|---:|
-| 启用源数 | 20 | 19 |
+| 启用源数 | 20 | 19 → **25**（同日又加 6 个，见 [source-discovery.md](source-discovery.md)） |
 | 零产出源 | **11** | **0** |
-| 抓取合计 | 18,285 条 | **20,771 条** |
+| 抓取合计 | 18,285 条 | 20,771 → **22,219 条** |
 
 ---
 
@@ -42,13 +44,19 @@ $ .venv/bin/python scripts/check_sources.py
 | `free-tv-all` | 2,043 | m3u | 6 |
 | `suxuang-myIPTV` | 1,211 | m3u | 4 |
 | `gitee-why006-TV` | 1,160 | m3u | 3 |
-| `epg-pw` | 752 | m3u | 2 |
+| `qist-tvbox` | 824 | m3u | 3 |
+| `epg-pw` | 756 | m3u | 2 |
 | `vbskycn-iptv4` | 430 | m3u | 5 |
 | `zhi35-iptv` | 393 | m3u | 2 |
 | `xiweiwong-hk-iptv` | 252 | m3u | 2 |
-| `free-tv-uk` | 55 | markdown | 6 |
-| `hujingguang-iptv` | 71 | m3u | 4 |
+| `newsboy-hktw` | 167 | m3u | 5 |
+| `yuechan-live-gntv` | 140 | m3u | 2 |
+| `millerarice-hk-tw` | 139 | m3u | 5 |
+| `jifeng-iptv-hkmt` | 94 | m3u | 4 |
 | `fanmingming-live` | 82 | m3u | 3 |
+| `hebijunge-tvbox-hktw` | 81 | m3u | 3 |
+| `hujingguang-iptv` | 70 | m3u | 4 |
+| `free-tv-uk` | 55 | markdown | 6 |
 | `sammy0101` | 32 | m3u | 1 |
 | `free-tv-us` | 28 | markdown | 6 |
 | `free-tv-kr` | 22 | markdown | 5 |
@@ -56,6 +64,7 @@ $ .venv/bin/python scripts/check_sources.py
 | `free-tv-jp` | 15 | markdown | 5 |
 | `free-tv-tw` | 13 | markdown | 5 |
 | `free-tv-hk` | 5 | markdown | 5 |
+| **合计** | **22,219** | 18 m3u + 7 markdown | 25 个启用源 |
 
 ---
 
@@ -78,7 +87,10 @@ Free-TV 的 `lists/*.md` 是 markdown 表格：
 `#EXTINF` → markdown 表格 → YAML → empty，并在 0 条时打 WARNING。
 详见 `src/fetcher.py` 的模块 docstring 与 `tests/test_fetcher_parse.py`（15 个用例）。
 
-8 个源恢复后合计 **164 条**（hk 5 / tw 13 / cn 21 / jp 15 / kr 22 / us 28 / uk 55 + fork 5）。
+**7 个启用的** markdown 源恢复后合计 **159 条**（hk 5 / tw 13 / cn 21 / jp 15 / kr 22 / us 28 / uk 55）。
+第 8 个是 `Harbin-byte-iptv`（5 条），它与 `free-tv-hk` 逐字节相同，已停用 —— 所以那次「8 个源 164 条」里的 +5 是零增量。
+
+> 格式嗅探的另一层收益：`free-tv-all` 这个 `.m3u8` 源也被判成 m3u 正常解析（2,043 条），而 `parse_text()` 对认不出的内容返回 `empty` 并打 WARNING —— 不会有第四种静默失效方式。
 
 ### 2. `raw.gh.registry.cyou` 代理已死（2 个源，可修，已修）
 

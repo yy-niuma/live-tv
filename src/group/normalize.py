@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Channel name normalization and merging."""
 import re
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 # -------------------------------------------------------------------
 # 1. 繁简转换（常用词替换，非逐字）
@@ -234,14 +234,22 @@ def get_url_priority(url: str) -> int:
 # -------------------------------------------------------------------
 # 5. 频道合并
 # -------------------------------------------------------------------
-def merge_duplicate_channels(channels: List[dict]) -> List[dict]:
+def merge_duplicate_channels(
+    channels: List[dict],
+    health: Optional[Dict[str, bool]] = None,
+) -> List[dict]:
     """
     合并同名频道，保留最佳 URL。
 
     策略:
     - 按标准化后的名称分组
     - 每组最多保留 3 个 URL（1 个最优 + 2 个备用）
-    - 优先级: HK CDN > 国内 CDN > 普通 URL
+    - 优先级: **已实测可播 > 未知 > 已实测不可播**，同档内 HK CDN > 国内 CDN > 普通 URL
+
+    参数 `health` 是 `{url: bool}` 的实测快照（见 `src/lib/stream_health.py`）。
+    传 `None` / `{}` 时行为与旧版完全一致 —— 只按 CDN 白名单和 URL 优先级挑。
+    为什么要这个参数：2026-10-29 实测到「只做同名去重」会让可播条数从 77 掉到 53，
+    因为白名单里已死链的 URL 会压过实测可播的 URL。
     """
     try:
         from src.lib.whitelist import is_hk_cdn_whitelisted
@@ -263,12 +271,19 @@ def merge_duplicate_channels(channels: List[dict]) -> List[dict]:
     merged = []
 
     for norm_name, chs in groups.items():
-        # 按 URL 优先级排序（whitelist > HK CDN > CN CDN > 普通）
+        # 排序键：实测可播(0) > 未知(1) > 实测不可播(2)，同档内 whitelist > HK CDN > CN CDN > 普通
         def sort_key(c):
             url = c["url"]
+            known_good = 1
+            if health:
+                hit = health.get(url)
+                if hit is True:
+                    known_good = 0
+                elif hit is False:
+                    known_good = 2
             if is_hk_cdn_whitelisted(url):
-                return (0, 0)
-            return (get_url_priority(url), 0)
+                return (known_good, 0, 0)
+            return (known_good, 1, get_url_priority(url))
 
         sorted_chs = sorted(chs, key=sort_key)
 
@@ -299,7 +314,11 @@ def merge_duplicate_channels(channels: List[dict]) -> List[dict]:
 # -------------------------------------------------------------------
 # 6. 批量标准化+合并
 # -------------------------------------------------------------------
-def normalize_channels(channels: List[dict], aliases: Dict[str, str]) -> List[dict]:
+def normalize_channels(
+    channels: List[dict],
+    aliases: Dict[str, str],
+    health: Optional[Dict[str, bool]] = None,
+) -> List[dict]:
     """
     对频道列表进行标准化和合并。
     - 标准化频道名称
@@ -313,6 +332,6 @@ def normalize_channels(channels: List[dict], aliases: Dict[str, str]) -> List[di
             ch["_normalized_name"] = normalize_channel_name(raw_name, aliases)
 
     # 2. 合并同名频道
-    merged = merge_duplicate_channels(channels)
+    merged = merge_duplicate_channels(channels, health=health)
 
     return merged

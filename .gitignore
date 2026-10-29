@@ -17,3 +17,6 @@ dist/
 # 本地审计产出（不入库）
 reports/
 .venv
+
+# 实测可播快照（机器相关、时效性强，CI 自己跑一遍再喂给 src.main）
+config/stream_health.json

@@ -10,9 +10,12 @@ from src.group.normalize import normalize_channel_name, normalize_channels
 class Grouper:
     """频道分组器"""
 
-    def __init__(self, config=None):
+    def __init__(self, config=None, health: Optional[Dict[str, bool]] = None):
         self.config = config
         self._aliases: Dict[str, str] = {}
+        # {url: bool} 实测可播快照，用于合并同名频道时优先挑能播的链路。
+        # None / {} 时行为与旧版一致。见 src/lib/stream_health.py 的说明。
+        self.health: Dict[str, bool] = health or {}
 
     def _load_aliases(self) -> Dict[str, str]:
         """加载别名映射"""
@@ -55,7 +58,7 @@ class Grouper:
                 "_normalized_name": ch._normalized_name,
             })
 
-        merged = normalize_channels(channels_dict, aliases)
+        merged = normalize_channels(channels_dict, aliases, health=self.health)
         print(f"[Grouper] 合并后剩余 {len(merged)} 个频道")
 
         # 转换回 Channel 对象，并使用标准化名称

@@ -1,6 +1,6 @@
 # live-tv · IPTV 直播源聚合
 
-从 `config/sources.yaml` 配置的 **19 个启用数据源**（M3U / Markdown 表格 / YAML 三种格式）抓取直播源，
+从 `config/sources.yaml` 配置的 **25 个启用数据源**（M3U / Markdown 表格 / YAML 三种格式）抓取直播源，
 按 URL 去重、繁名归一、同名合并、按频道名分类，最后生成两个 M3U 播放列表。
 
 - 仓库：<https://github.com/yy-niuma/live-tv>
@@ -46,7 +46,7 @@ python -m src.main --output ./output
 > 只想看产物结构时加 `--skip-validation`，一次完整运行约 4 分钟。
 > 从零跑通、常见问题见 **[docs/getting-started.md](docs/getting-started.md)**。
 
-### 命令行参数（`python -m src.main --help` 共 7 项，含 `-h`；下表是 6 个功能选项）
+### 命令行参数（`python -m src.main --help` 共 8 项，含 `-h`；下表是 7 个功能选项）
 
 | 参数 | 说明 |
 |---|---|
@@ -55,6 +55,7 @@ python -m src.main --output ./output
 | `--no-cache` | 禁用缓存（注意：这条路径**不写**缓存，见 known-issues #3） |
 | `--skip-validation` | 跳过 URL 验证（保留全部抓到的频道） |
 | `--skip-fetch` | 跳过抓取，读 `src/.cache/channels_raw.json`；无缓存则报错退出 |
+| `--health-file PATH` | 实测可播快照 `{url: bool}`；不传则读 `config/stream_health.json`（若存在）。见下文「同名合并时优先挑实测能播的链路」 |
 | `--fetch-timeout SECOND` | 抓取阶段总超时，默认 `90` |
 
 ---
@@ -88,7 +89,7 @@ python -m src.main --output ./output
 ## 数据流
 
 ```
-config/sources.yaml (19 个启用源)
+config/sources.yaml (25 个启用源)
       │  src/fetcher.py      并发抓取 + 按 URL 去重（M3U / YAML）
       ▼
    Channel[]
@@ -105,32 +106,65 @@ output/all_merged.m3u · output/hk_merged.m3u · output/stats.json
 
 模块职责、行数、每个模块的已知问题见 **[docs/architecture.md](docs/architecture.md)**。
 
+### 同名合并时优先挑「实测能播」的链路
+
+`merge_duplicate_channels()` 合并同名频道时只保留 1 主 URL + 2 备用，旧的排序依据是
+**CDN 白名单 + URL 优先级** —— 它不知道哪条真的能播。2026-10-29 实测到这个后果：
+
+| `hk_merged.m3u` | 条数 | 可播 | 可用率 |
+|---|---:|---:|---:|
+| 不做同名合并 | 167 | 77 | 46.1% |
+| 只做同名合并（旧排序） | 144 | **53** | 36.8% |
+| 同名合并 + 实测可播排序 | 143 | **64** | 44.8% |
+
+**只做去重会把可播条数从 77 打到 53** —— 11 个频道组内各有 1 条可播，合并后主 URL 全是死链。
+修法是引入一个实测快照：
+
+```console
+# 1) 逐条实测，同时产出 {url: bool} 快照
+$ .venv/bin/python scripts/check_streams.py output/hk_merged.m3u \
+      --health-out config/stream_health.json
+
+# 2) 下次生成时自动读取（也可显式 --health-file 指定）
+$ python -m src.main
+[Health] 载入 174 条实测结果（可播 71 / 不可播 103）
+```
+
+排序变成 **已实测可播 > 未知 > 已实测不可播**，同档内仍然优先 CDN 白名单。
+快照不存在时行为与旧版完全相同（不是必需依赖）。机制细节见
+[`src/lib/stream_health.py`](src/lib/stream_health.py) 的模块 docstring，
+快照本身不入库（`.gitignore` 已排除，机器相关且时效性强）。
+
+> 注意：`_backup_urls` 目前**不会写进 M3U**（历史遗留，见
+> [docs/known-issues.md](docs/known-issues.md)），所以主链路死了播放器侧没有 failover。
+> 上面的排序只保证「挑的那条尽量能播」，不解决 failover。
+
 ---
 
 ## 当前状态
 
 | 项目 | 值 |
 |---|---|
-| 代码规模 | 2,334 行 / 14 个 `.py`（`categorizer.py` 684 行是重心） |
-| 数据源 | 配置 21 个，**启用 19 个**（2 个停用并注明原因），逐源体检 **0 个零产出** |
-| 测试 | `pytest` → **351 passed, 7 xfailed**（358 例） |
+| 代码规模 | 2,470 行 / 15 个 `.py`（`categorizer.py` 684 行是重心） |
+| 数据源 | 配置 27 个，**启用 25 个**（2 个停用并注明原因），逐源体检 **0 个零产出** |
+| 测试 | `pytest` → **389 passed, 7 xfailed**（396 例） |
 | 静态检查 | `ruff check src scripts` → All checks passed |
-| 类型检查 | `mypy src/` → 17 errors（CI 里 `continue-on-error`） |
+| 类型检查 | `mypy src/` → 18 errors（CI 里 `continue-on-error`） |
 | 分组成员评测 | `scripts/eval_categorize.py` → **50/51**（唯一残留 `DetetivesMedicos`，脚本故意退 1） |
-| 最近一次全新运行 | 抓取 18,385 → 同名合并 13,709 → 53 组；`all` 1,724 条、`hk` **122** 条 |
-| 港澳台链接可用率 | `hk_merged` 107 条那次测出 43 条可用 = **40.2%**（`scripts/check_streams.py`） |
+| 最近一次全新运行 | 抓取 19,502 → 同名合并 14,224 → 53 组；`all` 1,750 条、`hk` **143** 条 |
+| 港澳台链接可用率 | `hk_merged` 143 条测出 **64 条可用 = 44.8%**（`scripts/check_streams.py`，逐条 HEAD/GET） |
 
 逐源健康检查（这是新加的，之前没有）：
 
 ```console
 $ .venv/bin/python scripts/check_sources.py
-合计 20771 条 / 19 个启用源
+合计 22219 条 / 25 个启用源
 ✅ 每个源都抓到了内容
 ```
 
 > **2026-10-29 修掉一个大坑**：此前 20 个源里 **11 个产出 0 条**，而总量仍有 18,285 条、
 > `exit=0`、产物正常生成 —— 整条流水线「看起来完全正常」。原因是 8 个 markdown 表格源
-> 被当成 m3u 解析、2 个指向已死的 GitHub 代理、1 个源站停服。
+> 被当成 m3u 解析（其中 1 个是重复 fork，已停用）、2 个指向已死的 GitHub 代理、1 个源站停服。
 > 现在三种格式按**内容**嗅探，0 条会打 WARNING，逐源体检进脚本。
 > 全过程与证据见 **[docs/source-health.md](docs/source-health.md)**。
 
@@ -191,6 +225,7 @@ $ .venv/bin/python scripts/check_sources.py
 | [docs/categorize-rework.md](docs/categorize-rework.md) | 分组逻辑重构全过程 + 全部实测数据 |
 | [docs/known-issues.md](docs/known-issues.md) | 12 条限制的证据 + 数字核实命令 |
 | [docs/source-health.md](docs/source-health.md) | 逐源体检：11 个零产出源的诊断与修复、格式嗅探、防复发 |
+| [docs/source-discovery.md](docs/source-discovery.md) | 选源口径：60+ 候选的新颖度×可播率实测，以及为什么大多数源不值得加 |
 | [docs/ci.md](docs/ci.md) | GitHub Actions 定时任务、超时预算、权限规范 |
 | [docs/categorize-bug-analysis.md](docs/categorize-bug-analysis.md) | 分组缺陷清单（19 条 D01–D19） |
 | [docs/categorize-improvement-proposal.md](docs/categorize-improvement-proposal.md) | 重构方案、残留取舍、后续 TODO |

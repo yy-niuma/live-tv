@@ -30,22 +30,23 @@ live-tv/
 └── output/                all_merged.m3u / hk_merged.m3u / stats.json
 ```
 
-行数（`wc -l src/*.py src/group/*.py src/lib/*.py`，合计 **2,334**）：
+行数（`wc -l src/*.py src/group/*.py src/lib/*.py`，合计 **2,470**）：
 
 | 文件 | 行数 | 占比 | 职责 |
 |---|---:|---:|---|
-| `src/group/categorizer.py` | 684 | 31.1% | 分类规则与判定：`_match()` `HK_TW_MO_RULES` `_region_category()` `is_hk_region()` `recategorize_others()` `categorize()` |
-| `src/group/normalize.py` | 318 | 14.5% | 频道名归一（繁简、噪声、别名）、URL 优先级、同名合并 |
-| `src/logo_map.py` | 302 | 13.8% | 硬编码 logo 表 + `get_logo()` / `get_logo_fuzzy()` |
-| `src/fetcher.py` | 314 | 13.5% | `Channel` 数据类 + 19 源并发抓取 + **按内容嗅探** m3u / markdown / YAML + 按 URL 去重 |
-| `src/generator.py` | 196 | 8.9% | m3u 文本拼装、分类排序（`CATEGORY_ORDER` + `KNOWN_CATEGORIES`）、脏名过滤、100/组截断 |
-| `src/main.py` | 168 | 7.7% | CLI 参数、四阶段编排、`stats.json` 写出 |
-| `src/grouper.py` | 92 | 4.2% | 别名表加载、调 `normalize.*` 合并、调 `categorize()` 分组 |
-| `src/validator.py` | 92 | 4.2% | HEAD/GET 探测、代理域名拒绝、CDN 白名单放行 |
-| `src/config.py` | 57 | 2.6% | 三个配置文件的最薄封装（懒加载 + 空列表即「未加载」） |
-| `src/lib/cache.py` | 49 | 2.3% | `SimpleCache`：`get/set/clear`，默认 TTL 86400s |
-| `src/lib/whitelist.py` | 48 | 2.2% | 港澳台 CDN 的 `re.Pattern` 列表 + `is_hk_cdn_whitelisted()` |
-| `src/__init__.py` | 3 | — | 只有 `__version__ = "1.0.0"`（无 tag 对应，读不到） |
+| `src/group/categorizer.py` | 684 | 27.7% | 分类规则与判定：`_match()` `HK_TW_MO_RULES` `_region_category()` `is_hk_region()` `recategorize_others()` `categorize()` |
+| `src/group/normalize.py` | 337 | 13.6% | 频道名归一（繁简、噪声、别名）、URL 优先级、同名合并 |
+| `src/logo_map.py` | 302 | 12.2% | 硬编码 logo 表 + `get_logo()` / `get_logo_fuzzy()` |
+| `src/fetcher.py` | 314 | 12.7% | `Channel` 数据类 + 25 源并发抓取 + **按内容嗅探** m3u / markdown / YAML + 按 URL 去重 |
+| `src/generator.py` | 198 | 8.0% | m3u 文本拼装、分类排序（`CATEGORY_ORDER` + `KNOWN_CATEGORIES`）、脏名过滤、100/组截断 |
+| `src/main.py` | 188 | 7.6% | CLI 参数、四阶段编排、`stats.json` 写出 |
+| `src/grouper.py` | 95 | 3.8% | 别名表加载、调 `normalize.*` 合并、调 `categorize()` 分组 |
+| `src/validator.py` | 92 | 3.7% | HEAD/GET 探测、代理域名拒绝、CDN 白名单放行 |
+| `src/config.py` | 57 | 2.3% | 三个配置文件的最薄封装（懒加载 + 空列表即「未加载」） |
+| `src/lib/cache.py` | 49 | 2.0% | `SimpleCache`：`get/set/clear`，默认 TTL 86400s |
+| `src/lib/whitelist.py` | 48 | 1.9% | 港澳台 CDN 的 `re.Pattern` 列表 + `is_hk_cdn_whitelisted()` |
+| `src/lib/stream_health.py` | 101 | 4.1% | `{url: bool}` 实测可播快照的 load/save/merge，喂给合并排序 |
+| `src/__init__.py` | 3 | 0.1% | 只有 `__version__ = "1.0.0"`（无 tag 对应，读不到） |
 | `src/group/__init__.py`、`src/lib/__init__.py` | 1 / 1 | — | 空 |
 
 ---
@@ -55,7 +56,7 @@ live-tv/
 `src/main.py:17-132` 的 `run()` 就是全部流程，四步顺序硬编码：
 
 ```
-config/sources.yaml ──(Config.sources, 只取 enabled≠false)──► 19 个启用源
+config/sources.yaml ──(Config.sources, 只取 enabled≠false)──► 25 个启用源
         │
         │ ① 抓取  Fetcher.fetch_all()            src/fetcher.py:42
         │   · 每源独立协程，Semaphore(10) 限流，最多重试 3 次（退避 1s/2s/3s）
@@ -115,7 +116,8 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 
 - `Channel` 是**手写类**，不是 dataclass。
 - **按内容嗅探格式，不看后缀**（2026-10-29 改）：`#EXTINF` → m3u（优先，因为有仓库把 m3u 存成 `.md`）
-  → markdown 表格 → YAML → `empty`。旧版按后缀分派，导致 8 个 markdown 表格源静默产出 0 条，
+  → markdown 表格 → YAML → `empty`。旧版按后缀分派，导致 8 个 markdown 表格源静默产出 0 条
+（其中 1 个是重复 fork，已停用；启用的 7 个共 159 条），
   详见 [`source-health.md`](source-health.md)。
 - `_EXTINF_RE` / `_ATTR_RE` 两个正则解析 M3U；只认 `tvg-name|tvg-logo|tvg-chnid|group-title|attribute`
   五个属性（`tvg-country` 之类会被丢掉）。
@@ -136,23 +138,50 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 
 已知问题（**最危险的一处**）：`validate()` 的 `return [ch for ch, valid in zip(channels, results) if valid]`（`:27`），而 `results` 来自 `gather(return_exceptions=True)` —— 异常对象恒为真，于是「验证过程抛异常」被解释成「验证通过」。实测 `http://[::1/list.m3u8`（`urlparse` 抛 `ValueError`）被保留；详见 §3.5b。另外并发 20 + 单条 10s 是整条流水线的时间黑洞（§2.6）。
 
-### 3.4 `grouper.py`（92 行）
+### 3.4 `grouper.py`（95 行）
 
 只做调度：加载别名（`config/alias.txt`，非空行 144 条）→ 调 `normalize_channel_name()` → 把 `Channel` 摊平成 `dict` 交给 `normalize_channels()` → 再拼回 `Channel` → 逐个 `categorize()` 分桶。
 
 已知问题：Channel → dict → Channel 的往返**丢掉了 `raw_attrs`**（重建时没传 `**kwargs`），所以 `_source` / `_priority` 在合并后全部消失——后续任何「按源优先级」的逻辑都拿不到数据（§3.5）。
 
-### 3.5 `group/normalize.py`（318 行）
+### 3.5 `group/normalize.py`（337 行）
 
 - `convert_tc_to_sc()`：**词表级**繁简替换（约 100 组词，不是逐字转换）。
 - `strip_noise()`：清除画质/码率等噪声。
 - `normalize_channel_name()`：繁简 → 噪声清理 → 别名替换（带前后边界判断）。
 - `get_url_priority()`：1 = 港澳台 CDN 白名单域名，2 = 已知聚合站，3 = 其他。
-- `merge_duplicate_channels()`：按 `_normalized_name` 归组，主用 URL 取优先级最高者，另存最多 2 个备用到 `_backup_urls`。
+- `merge_duplicate_channels(channels, health=None)`：按 `_normalized_name` 归组，
+  主用 URL 取排序第一者，另存最多 2 个备用到 `_backup_urls`。排序键是 3 元组
+  `(实测可播档位, CDN 档位, URL 优先级)`：
+  - 实测可播档位：`health[url] is True` → 0（可播）、不在快照里 → 1（未知）、
+    `is False` → 2（不可播）。`health` 为 `None`/`{}` 时全部为 1，**行为与旧版逐字节一致**。
+  - `health` 来自 `src/lib/stream_health.py`，即 `check_streams.py --health-out` 的产物。
+  为什么加这个参数见 `docs/source-discovery.md` 末节：只做同名去重会把 `hk_merged`
+  的可播条数从 77 打到 53，因为白名单里已死链的 URL 会压过实测可播的 URL。
+
+  > 副作用（已实测）：主 URL 变了，`group` 字段（源自该 URL 的 `group-title`）也跟着变，
+  > 因此同一份抓取结果在有/无 health 时分组数可能差 1（实测 143 vs 144 条港澳台）。
+  > 这是「合并阶段决定分类」这一历史设计（见 §5 的 `merged_ch = best.copy()`）暴露出来的。
 
 已知问题：`strip_noise()` 里 `re.compile(r'\s+').sub('', ...)` 把**所有内部空格删掉**（实测 `"TVB 翡翠台"` → `"TVB翡翠台"`），下游 `logo_map` 只能靠 `norm_nospace` 分支打补丁（§3.5）；`_SPECIAL_MAPPING` 每次调用重建；`original` 变量赋值后未使用。
 
-### 3.6 `group/categorizer.py`（684 行）
+### 3.6 `lib/stream_health.py`（101 行）
+
+`{url: bool}` 实测可播快照的读写，**不联网、不判断，只搬运事实**：
+
+| 函数 | 职责 |
+|---|---|
+| `load(path=None)` | 读快照。文件不存在 / JSON 坏 / 不是 dict → 一律返回 `{}`（= 全部未知），不抛异常 |
+| `save(results, path)` | 把 `check_streams.py` 的 `results` 落成 `{url: ok}`；缺 `ok` 或空 `url` 的条目跳过（**不猜**） |
+| `merge_from_files(paths, out)` | 多份实测结果合并成一份，后写的覆盖先写的 |
+
+`DEFAULT_PATH` = `config/stream_health.json`，**已在 `.gitignore`**（机器相关、时效性强）。
+消费者只有一处：`Grouper.__init__(health=...)` → `normalize.merge_duplicate_channels()`。
+
+> 为什么单开一个模块而不是塞进 `normalize.py`：`normalize` 是纯函数层、不该碰文件系统；
+> 而且 `check_streams.py`（脚本层）也要写这个格式，两边共用一个模块比各写一份 dict 约定安全。
+
+### 3.7 `group/categorizer.py`（684 行）
 
 全项目最重的文件：`PROVINCE_KEYWORDS`（32 组省级关键词表）+ `HK_TW_MO_RULES` + 一系列分类正则 + 8 个函数。
 
@@ -186,19 +215,19 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 
 - `_excluded()` 是死代码（37 行，无调用方），未删是因为本批次不想动无关逻辑。
 - 所有正则以**字符串**形式传给 `re.search`，`re` 的 512 条内部缓存被反复冲掉，时间主要花在重新编译上（审计报告 §3.4 的 cProfile 实测：1,379 频道 40.2s，预编译后 1.0s，约 40×。**该 40× 是那份报告的实测值，本次重构未复测，也未预编译**）。
-- `CATEGORY_ORDER` 里 12 个「预留但当前不产出」的分类仍与 `categorize()` 不对应（§3.8）；
+- `CATEGORY_ORDER` 里 12 个「预留但当前不产出」的分类仍与 `categorize()` 不对应（§3.9）；
   已由 `tests/test_category_order_contract.py` 的 `RESERVED_CATEGORIES` 钉住——一旦其中某个开始产出，用例失败。
 - 3 条已知残留缺陷（`ATV` 归卫视但 `is_hk_region=False`、`DetetivesMedicos`、`CNNInternational` 落 `🌐 国际频道`）登记在 `docs/categorize-bug-analysis.md` 与 `tests/test_known_defects.py`。原第 4 条 `HOY资讯台` 已修 —— 它其实是重构用 `r"\bhoy\b"` 引入的新回归（`\b` 在 CJK 边界不成立），不是既有缺陷。
 
 回归护栏：`scripts/eval_categorize.py`（`known_bugs.tsv` 24 条 + `known_good.tsv` 27 条，当前 50/51）、`tests/test_categorize_golden.py`（行为钉死表）、`tests/test_known_defects.py`（8 条 xfail 契约）。
 
-### 3.7 `logo_map.py`（302 行）
+### 3.8 `logo_map.py`（302 行）
 
 一张硬编码的 `频道名 → logo URL` 表：`LOGO_MAP` 169 个键（字面量写了 170 对，因有 1 个重复键），`LOGO_MAP_CASE` 是它的小写镜像（169 个键）。入口有 `normalize()` / `get_logo()` / `get_logo_with_fallback()` / `get_logo_fuzzy()`。`generator.build_extinf()` 对**每条**没 logo 的记录调用 `get_logo_fuzzy()`，未命中时做整表线性扫描。
 
 已知问题：`"viutv"` 键重复定义（字面量 170 对 → 实际 169 键，后者静默覆盖前者）；`norm_nospace` 分支是给 `strip_noise` 空格 bug 打的补丁；全表线性扫描在放开 100/组截断后会线性放大（§3.4(c)）。
 
-### 3.8 `generator.py`（198 行）
+### 3.9 `generator.py`（198 行）
 
 纯文本拼装，无 IO 依赖（只写文件）。要点：
 
@@ -219,17 +248,17 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 
 已知问题：输出层**反向依赖分类层内部函数** `is_hk_region`（`generator.py:8`），分类规则一改产物就跟着变（§3.3）；`import re` 未使用；100/组上限让交付量与 `stats.json` 永久不一致（三口径推导见 [`getting-started.md`](getting-started.md) FAQ 1/2/3）。
 
-### 3.9 `lib/cache.py`（49 行）
+### 3.10 `lib/cache.py`（49 行）
 
 `SimpleCache`：一个 key 一个 JSON 文件，`{"timestamp": ..., "value": ...}`，默认 TTL 86400 秒。
 
 已知问题：默认目录用 `Path(__file__).parent.parent / ".cache"`，因为文件在 `src/lib/` 下，`parent.parent` 是 **`src/`**，缓存落在 `src/.cache/`（实测打印该路径），而 `.gitignore` 没覆盖它（§2.3 C-P2-3、§3.7）。
 
-### 3.10 `lib/whitelist.py`（48 行）
+### 3.11 `lib/whitelist.py`（48 行）
 
 港澳台 CDN 的 `re.Pattern` 列表（tvb.com / viutv.com / rthk.hk / hkdtmb.com / tdm.com.mo / now.com 等 + 若干 IP 段），供 `normalize.get_url_priority()` 判断 URL 优先级。**注意它和 `config/whitelist.txt`（验证器放行名单）是两套不同的东西**，名字相同、用途不同。
 
-### 3.11 `main.py`（168 行）
+### 3.12 `main.py`（188 行）
 
 - `run()`（`:17-132`）：四阶段编排，每阶段打印 `[Step n/4]`，返回 summary dict。
 - `main()`（`:135-168`）：argparse 六个参数（`--config/-c`、`--output/-o`、`--no-cache`、`--skip-validation`、`--skip-fetch`、`--fetch-timeout`）。
@@ -287,8 +316,8 @@ group.normalize ──► lib.whitelist   （函数内 import，带 try/except I
 
 | 文件 | 行数 | 作用 | 谁在读 |
 |---|---:|---|---|
-| `config/sources.yaml` | 111 | 20 个数据源（`name` / `url` / `enabled` / `priority` / 可选 `headers`） | `Config.sources` |
-| `config/alias.txt` | 168 | 频道别名映射（非空行 144 条），支持 `->` 与 `=` 两种分隔符，`#` 开头为注释 | `Grouper._load_aliases` |
+| `config/sources.yaml` | 177 | 27 个数据源 / 25 启用（`name` / `url` / `enabled` / `priority` / 可选 `headers`） | `Config.sources` |
+| `config/alias.txt` | 213 | 频道别名映射（154 条映射），支持 `->` 与 `=` 两种分隔符，`#` 开头为注释 | `Grouper._load_aliases` |
 | `config/groups.yaml` | 79 | 分组相关配置 | **当前无代码读取**（`grep -rn "groups.yaml" src` → 无命中） |
 | `config/whitelist.txt` | 9 | 验证器直接放行的 CDN 域名 | `Validator._is_whitelisted_cdn` |
 | `config/proxy.txt` | 9 | 验证器直接丢弃的代理域名 | `Validator._is_proxy_domain` |
@@ -301,6 +330,6 @@ group.normalize ──► lib.whitelist   （函数内 import，带 try/except I
 
 ## 7. 与审计报告的差异（为什么数字对不上）
 
-审计报告 `audit-c-engineering.md` §1.1 记的代码规模是 **2,161 行 / 14 个 .py / `main.py` 159 行**；当前 `wc -l` 得到 **2,334 行 / `main.py` 175 行**。其中 9 行来自 `src/main.py` 的退出码修复（`print` + `return` → `file=sys.stderr` + `raise SystemExit(1)`，提交 `871e32d`）：`git show 074c677:src/main.py | wc -l` → `159`，当前 HEAD → `168`；+16 行来自 `src/generator.py`（182 → 198，其中 +14 是分组重构的 `CATEGORY_ORDER` 扩充、+2 是 `📺 有线电视` 的辨析注释）；`src/group/categorizer.py` 从 670 涨到 **684**，其中 +7 来自 2026-10-29 分组逻辑重构（`a00e134`，670 → 677）、+7 来自随后的第二遍修正（`8a292b3`，677 → 684，主要是说明 `\b` 在 CJK/数字边界失效的注释）。报告记录时其余文件行数逐条一致。
+审计报告 `audit-c-engineering.md` §1.1 记的代码规模是 **2,161 行 / 14 个 .py / `main.py` 159 行**；当前 `wc -l` 得到 **2,470 行 / `main.py` 188 行**。其中 9 行来自 `src/main.py` 的退出码修复（`print` + `return` → `file=sys.stderr` + `raise SystemExit(1)`，提交 `871e32d`）：`git show 074c677:src/main.py | wc -l` → `159`，当前 HEAD → `168`；+16 行来自 `src/generator.py`（182 → 198，其中 +14 是分组重构的 `CATEGORY_ORDER` 扩充、+2 是 `📺 有线电视` 的辨析注释）；`src/group/categorizer.py` 从 670 涨到 **684**，其中 +7 来自 2026-10-29 分组逻辑重构（`a00e134`，670 → 677）、+7 来自随后的第二遍修正（`8a292b3`，677 → 684，主要是说明 `\b` 在 CJK/数字边界失效的注释）。报告记录时其余文件行数逐条一致。
 
-同理，报告 §1.2 说「零测试、182 次机器人提交」——机器人提交今天已是 **183** 次（`git rev-list --count --author=github-actions HEAD`）；「零测试」在 189 个历史提交里成立（`git rev-list --count 3020583^` → 189），但 `3020583` 起仓库已有 **306** 个用例，分组重构后经过多轮补齐现为 **323 passed / 7 xfailed**（330 例）。报告描述的是整改前的状态，本文描述现状。
+同理，报告 §1.2 说「零测试、182 次机器人提交」——机器人提交今天已是 **183** 次（`git rev-list --count --author=github-actions HEAD`）；「零测试」在 189 个历史提交里成立（`git rev-list --count 3020583^` → 189），但 `3020583` 起仓库已有 **306** 个用例，分组重构后经过多轮补齐现为 **389 passed / 7 xfailed**（396 例）。报告描述的是整改前的状态，本文描述现状。

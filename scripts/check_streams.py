@@ -79,6 +79,9 @@ def main() -> int:
     ap.add_argument("--jobs", type=int, default=20)
     ap.add_argument("--timeout", type=int, default=10)
     ap.add_argument("--json", type=Path, default=None, help="把逐条结果写成 JSON")
+    ap.add_argument("--health-out", type=Path, default=None,
+                    help="只写 {url: bool} 的实测快照，喂给 `src.main --health-file`，"
+                         "让合并同名频道时优先挑能播的链路")
     ap.add_argument("--only", default=None, help="只验证名字匹配该正则的频道")
     ap.add_argument("--quiet", action="store_true", help="只打汇总，不逐条")
     ap.add_argument("--max-bad-ratio", type=float, default=None,
@@ -122,6 +125,12 @@ def main() -> int:
             by_group[key] = by_group.get(key, 0) + 1
         for g, n in sorted(by_group.items(), key=lambda x: -x[1]):
             print(f"  {g:<20} {n}")
+
+    if args.health_out:
+        from src.lib import stream_health
+
+        written = stream_health.save(results, args.health_out)
+        print(f"实测快照已写入 {written}（{len(results)} 条）")
 
     if args.json:
         args.json.write_text(

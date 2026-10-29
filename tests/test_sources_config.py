@@ -7,7 +7,8 @@
 - `Harbin-byte-iptv` 与 `free-tv-hk` 内容逐字节相同（md5 一致），是 Free-TV 的旧 fork。
 - 8 个 `.md` 源曾被当成 m3u 解析（见 `tests/test_fetcher_parse.py`）。
 
-这里只钉「配置自身是否自洽」，能不能抓到内容靠 `scripts/check_sources.py`（需要网络，不进 CI）。
+这里只钉「配置自身是否自洽」；能不能抓到内容靠 `scripts/check_sources.py`
+（需要网络，不进 CI）。
 """
 from pathlib import Path
 
@@ -18,7 +19,8 @@ SOURCES_YAML = Path(__file__).resolve().parent.parent / "config" / "sources.yaml
 
 # 已经确认停服/失效的域名 —— 别再有人加回去
 KNOWN_DEAD_HOSTS = {
-    "raw.gh.registry.cyou": "该 GitHub 代理已死（http=000），改用直连 raw.githubusercontent.com 或 gh-proxy.com",
+    # 该 GitHub 代理已死（curl 返回 000，0.001s 秒断）
+    "raw.gh.registry.cyou": "改用直连 raw.githubusercontent.com 或 gh-proxy.com",
     "t.freetv.fun": "2026-10-29 实测 20s 超时，源站疑似停服",
     "freetv.fun": "同上",
 }
@@ -60,7 +62,7 @@ def test_source_names_are_unique(all_sources):
 
 
 def test_source_urls_are_unique_when_enabled(enabled_sources):
-    """两个启用的源指向同一 URL 只是浪费请求，合并阶段反正会去重。"""
+    """两个启用的源指向同一 URL 只是浪费请求（合并阶段反正会去重）。"""
     urls = [s["url"] for s in enabled_sources]
     dupes = {u for u in urls if urls.count(u) > 1}
     assert not dupes, f"启用的源里有重复 URL：{sorted(dupes)}"
@@ -79,7 +81,11 @@ def test_all_urls_are_https(all_sources):
 
 def test_priority_within_documented_range(all_sources):
     """配置注释里写的是 1~6。"""
-    bad = [(s["name"], s["priority"]) for s in all_sources if not 1 <= s["priority"] <= 6]
+    bad = [
+        (s["name"], s["priority"])
+        for s in all_sources
+        if not 1 <= s["priority"] <= 6
+    ]
     assert not bad, f"priority 超出 1~6：{bad}"
 
 
@@ -124,7 +130,7 @@ def test_disabled_sources_keep_a_reason_comment(raw_config):
 
 
 def test_markdown_sources_are_expected_format(all_sources):
-    """`.md` 源走 markdown 表格解析。留一条断言提醒：新增 .md 源要确认它真是表格/ m3u 文本，
-    不是纯 HTML 页面（`parse_text()` 会判成 empty 并打 WARNING）。"""
+    """`.md` 源走 markdown 表格解析。留一条断言提醒：新增 .md 源要确认它真是
+    表格或 m3u 文本，不是纯 HTML 页面（`parse_text()` 会判成 empty 并打 WARNING）。"""
     md = [s["name"] for s in all_sources if s["url"].endswith(".md")]
-    assert md, "现在没有 .md 源了？若确实清空了，请同步删掉本用例与 fetcher 的 markdown 分支说明"
+    assert md, "现在没有 .md 源了？若确实清空了，请同步删掉本用例"

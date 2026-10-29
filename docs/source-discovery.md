@@ -68,19 +68,47 @@
 
 判 keep 的经验阈值：**新增可播港台 ≥ 5 条**，或新增可播总数占比 ≥ 25% 且非垃圾分类（春晚/购物/录像）。
 
-## 一个还没修的结构性天花板
+## 结构性天花板（2026-10-29 修了一半）
 
-`hk_merged` 里同名频道只保留 1 主 URL + 2 备用（`merge_duplicate_channels`），
-选「最优」的依据是 **CDN 白名单优先级，不是实测可播性**：
+`hk_merged` 里同名频道只保留 1 主 URL + 2 备用（`merge_duplicate_channels`，
+在 `src/group/normalize.py:237`），选「最优」的依据原来是 **CDN 白名单优先级，不是实测可播性**：
 
 ```python
 def sort_key(c):
-    if is_hk_cdn_whitelisted(c["url"]): return (0, 0)
+    if is_hk_cdn_whitelisted(c["url"]):
+        return (0, 0)
     return (get_url_priority(c["url"]), 0)
 ```
 
-所以一个白名单里但已死链的 URL 会压过实测可播的 URL。当前 `hk_merged` 全量可播率 45.5%，
-而单看 `xiweiwong/hk-iptv-auto`（源里 85 条港台，63 条可播，74%）就明显更高 ——
-说明**丢的是合并阶段的选择，不是找不到可播源**。
-下一步该做的是：把「最近一次实测可播」作为主排序键（可用 `check_streams --json` 的产物喂进去），
-而不是继续堆源。
+所以白名单里已死链的 URL 会压过实测可播的 URL。这不是推测 —— 加完 alias 去重后实测到：
+
+| `hk_merged.m3u` | 条数 | 可播 | 可用率 |
+|---|---:|---:|---:|
+| 不做同名合并 | 167 | 77 | 46.1% |
+| 只做同名合并（旧排序） | 144 | **53** | 36.8% |
+| 同名合并 + 实测可播排序 | 143 | **64** | 44.8% |
+
+**只做去重就把可播条数从 77 打到 53**：11 个频道组内各有 1 条可播，合并后主 URL 全是死链。
+
+### 修法：把实测结果喂进合并排序
+
+```console
+$ .venv/bin/python scripts/check_streams.py output/hk_merged.m3u \
+      --health-out config/stream_health.json   # 产出 {url: bool} 快照
+$ .venv/bin/python -m src.main                  # 自动读取，按 可播 > 未知 > 不可播 排
+[Health] 载入 174 条实测结果（可播 71 / 不可播 103）
+```
+
+实现见 `src/lib/stream_health.py`；`merge_duplicate_channels(channels, health=...)`
+新增可选参数，`health` 为 `None` 时行为与旧版逐字节一致。快照不入库（机器相关、时效性强）。
+
+### 还剩一半：`_backup_urls` 不写进 M3U
+
+合并阶段算出的 2 条备用链路（`_backup_urls`）在 `generator.build_extinf()` 里**根本没有输出**，
+所以主链路死了播放器侧没有 failover。排序只保证「挑中的那条尽量能播」，
+不能让挂掉的自动切备用。
+
+下一步（按收益排序）：
+1. 把 `_backup_urls` 写成 M3U 里的多条同名 `#EXTINF`，让播放器自己试；
+2. 定期跑 `check_streams --health-out` 并接进 CI（先跑实测再生成，别让产物依赖过期快照）；
+3. **继续堆源的收益已经很低**：60+ 候选里只有 6 个带来新增可播港台，合计 +17 条。
