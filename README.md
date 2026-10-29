@@ -8,7 +8,9 @@
 
 > 本文所有数字都是命令跑出来的，每条都在文末「数字核实」与 [`docs/getting-started.md`](docs/getting-started.md) 给了可复现命令。**产物数字每天都会变**，本文写的是仓库当前快照（`git log -1` = `074c677`，2026-10-29）。
 
-> **文档基线**：本文与 [`docs/architecture.md`](docs/architecture.md)、[`docs/getting-started.md`](docs/getting-started.md) 一起在 2026-10-29 的工程整改批次里入库（`871e32d` 退出码、`5221621` CI、`7ff4be1` 依赖与工程配置、`3020583` 测试），**产物数字取自数据提交 `074c677`**。CI 与依赖锁定的规范说明见 [`docs/ci.md`](docs/ci.md)。
+> **关于审计报告**：本文引用的 `audit-c-engineering.md` / `work-plan.md` 是只读审计产出，**不入库**（见 `.gitignore`），只存在于本地磁盘。
+
+本文与 [`docs/architecture.md`](docs/architecture.md)、[`docs/getting-started.md`](docs/getting-started.md) 一起在 2026-10-29 的工程整改批次里入库（`871e32d` 退出码、`5221621` CI、`7ff4be1` 依赖与工程配置、`3020583` 测试），**产物数字取自数据提交 `074c677`**。CI 与依赖锁定的规范说明见 [`docs/ci.md`](docs/ci.md)。
 
 ---
 
@@ -88,7 +90,7 @@ python -m src.main --output ./output
 
 产物写在 `output/`（`--output` 可改）。完整说明、常见问题见 **[docs/getting-started.md](docs/getting-started.md)**。
 
-> 验证阶段是纯网络等待（并发 20、单条超时 10 秒），逐条 HEAD 请求上万个 URL，是整条流水线最慢的一步；只想看产物结构时加 `--skip-validation`。本机实测一次 `--no-cache --skip-validation` 的完整运行：启动 10:50、产物写入 10:54，约 4 分钟；抓取阶段（20 源并发，含 3 个失败源各重试 3 次）在启动后一分钟内结束，时间几乎全花在「合并同名频道 + 分类」上。验证阶段耗时随远端响应变化很大，`reports/audit-c-engineering.md` §2.6 有按吞吐外推的实测表（本文未复测该阶段）。
+> 验证阶段是纯网络等待（并发 20、单条超时 10 秒），逐条 HEAD 请求上万个 URL，是整条流水线最慢的一步；只想看产物结构时加 `--skip-validation`。本机实测一次 `--no-cache --skip-validation` 的完整运行：启动 10:50、产物写入 10:54，约 4 分钟；抓取阶段（20 源并发，含 3 个失败源各重试 3 次）在启动后一分钟内结束，时间几乎全花在「合并同名频道 + 分类」上。验证阶段耗时随远端响应变化很大，本地审计报告 `audit-c-engineering.md` §2.6 有按吞吐外推的实测表（本文未复测该阶段）。
 
 ## 命令行参数
 
@@ -154,7 +156,7 @@ CI 细节、超时预算、权限与失败通知的规范说明见 **[docs/ci.md
 8. **分类与港澳台过滤判定不一致**：`categorizer.py` 里有若干双反斜杠正则（如 `\\bmacau\\b`，正则表达的是字面反斜杠 + `b`），实测 `re.search(r"\\bmacau\\b", "Macau TV", re.I)` → `None`；于是 `categorize("Macau TV")` = `🇲🇴 澳门` 而 `is_hk_region("Macau TV")` = `False`，该类频道不进 `hk_merged.m3u`。
 9. **测试覆盖**：`3020583` 起仓库里有 `tests/`（7 个文件，`python -m pytest` → `283 passed, 23 xfailed`，1.4s）。此前 186 个历史提交里没有任何测试。那 23 个 xfail 是**刻意固化的已知缺陷**（`tests/test_known_defects.py`），修好后去掉标记即变成契约测试。
 10. **可安装性**：`python -m src.main` 是唯一入口，**必须在仓库根目录执行**，否则 `ModuleNotFoundError: No module named 'src'`（包名就是 `src`）。`pyproject.toml`（`7ff4be1`）只声明 `requires-python = ">=3.11"` 与 ruff/mypy 配置，**有意不写 `[build-system]`**，所以仍然不能 `pip install -e .`（原因见该文件开头的注释）。
-11. **分组很慢**：`categorizer.py` 里几百个正则都以字符串形式传给 `re.search`，`re` 的 512 条内部缓存被反复冲掉，时间主要花在重新编译正则上（`reports/audit-c-engineering.md` §3.4 的 cProfile 实测：1,379 频道 40.2s，预编译后 1.0s，约 40×。**该 40× 是那份报告的实测值，本文档更新时未复测**）。
+11. **分组很慢**：`categorizer.py` 里几百个正则都以字符串形式传给 `re.search`，`re` 的 512 条内部缓存被反复冲掉，时间主要花在重新编译正则上（本地审计报告 `audit-c-engineering.md` §3.4 的 cProfile 实测：1,379 频道 40.2s，预编译后 1.0s，约 40×。**该 40× 是那份报告的实测值，本文档更新时未复测**）。
 12. **数字每天漂移**：同一份代码在不同日期产出量差别很大。仓库快照是 `stats 8,371 / all 1,164 / hk 33`；2026-10-29 我实测的一次全新运行（`--no-cache --skip-validation`，抓到手 16,901 频道、同名合并后 12,505）得到 `stats 12,505 / 53 组`、`all_merged` 1,378 条、`hk_merged` 58 条。**任何写死的数字都只是当日快照**，引用前请自己跑 `grep -c`。
 
 ## 免责声明

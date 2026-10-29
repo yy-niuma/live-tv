@@ -1,7 +1,9 @@
 # CI 与依赖锁定
 
-本文对应 `reports/work-plan.md` 第 2 步（Lane B：CI + 依赖），
-问题依据是 `reports/audit-c-engineering.md` §1.4（CI 里没有任何一步跑 lint / 类型 / 测试）、
+> 本文引用的 `audit-c-engineering.md` / `work-plan.md` 是只读审计产出，**不入库**（见 `.gitignore`），只存在于本地磁盘。
+
+本文对应 本地工作计划 `work-plan.md` 第 2 步（Lane B：CI + 依赖），
+问题依据是 本地审计报告 `audit-c-engineering.md` §1.4（CI 里没有任何一步跑 lint / 类型 / 测试）、
 §1.5（静态检查实测 106 / 19）、§3.1（没有 pyproject.toml 的代价）。
 
 改动前的状态一句话：**CI 只验证了「脚本没崩」，代码质量、类型、测试一样都没管。**
@@ -70,7 +72,7 @@ Checkout → Set up Python 3.11 (pip cache) → 安装 requirements.txt
 
 ## 2. 保险丝（`scripts/check_output.py`）为什么存在
 
-它不属于本 lane（所有权见 `reports/work-plan.md` §2，加固任务 N-01），但它决定了
+它不属于本 lane（所有权见 本地工作计划 `work-plan.md` §2，加固任务 N-01），但它决定了
 `update` job 的可信度，所以这里写清它防的是什么：
 
 **没有它的时候，`update` 的失败模式是静默的。** `python -m src.main` 即使产出了空列表、
@@ -108,7 +110,7 @@ Checkout → Set up Python 3.11 (pip cache) → 安装 requirements.txt
   这也正是 `requires-python = ">=3.11"` 不是随便写的原因。
 - **删掉的两个包**：`aiofiles`、`charset-normalizer`。证据在 §5。
   `charset-normalizer` 尤其值得记一笔：它是 `requests` 的传递依赖，
-  而本仓库从不 import `requests`（`reports/bench/` 里也没有），所以它连"间接用到"都不成立 ——
+  而本仓库从不 import `requests`（本地审计脚本 `bench/` 里也没有），所以它连"间接用到"都不成立 ——
   它只是从别处的 requirements 复制过来的。
 
 `dependabot.yml`：pip 与 github-actions 都是 weekly（周一 09:00 Asia/Shanghai）。
@@ -142,7 +144,7 @@ Found 19 errors in 7 files (checked 14 source files)
 
 **这些错误全部要改 `src/` 才能修**（把 `str = None` 改成 `str | None`、把 `output_dir`
 的注解从 `str` 改成 `Path`、在 `fetch_all()` 之前给 `_semaphore` 加断言……），
-而本轮的文件所有权明确禁止本 lane 触碰 `src/`（`reports/work-plan.md` §5）。
+而本轮的文件所有权明确禁止本 lane 触碰 `src/`（本地工作计划 `work-plan.md` §5）。
 
 所以只有两个诚实选项：
 
@@ -218,7 +220,7 @@ W293 ×3、F541 ×2、F601 ×1、F841 ×1）。
 | `src/logo_map.py` | **F601** | 1 | **真 bug**：42 行与 47 行都定义 `"viutv"`，后者静默覆盖前者 | **唯一"忽略了一条能抓 bug 的规则"的地方**。在修掉之前，新增 logo 映射若重复键不会被发现。需人工确认哪个扩展名映射是对的，故不归本 lane，src lane 修 |
 | `scripts/check_output.py` | E501 | 14 | 长中文提示串 / 函数签名，89~96 字符 | **不归本 lane**：该文件归 Lane C（保险丝加固），正在频繁改动；数字会漂移。Lane C 交付后由 Controller 在 work-plan §4 整合环节删除本条并折行 |
 
-清账主线是 `reports/work-plan.md` 3-4（`src/` → `src/livetv/` 包名归位 + 拆
+清账主线是 本地工作计划 `work-plan.md` 3-4（`src/` → `src/livetv/` 包名归位 + 拆
 `categorizer.py`）—— 那一次 `ruff check --fix` 可以一次性消掉 I001 / F401 / F541 / W293
 共 20 处，E501 折行后再消 47 处。剩下 2 处（F601、F841）是行为判断，必须人工。
 

@@ -2,6 +2,8 @@
 
 本文件按 `git log` 的**真实历史**整理，不编造条目。
 
+> 本文引用的 `audit-c-engineering.md` / `work-plan.md` 是只读审计产出，**不入库**（见 `.gitignore`），只存在于本地磁盘。
+
 ## 怎么读这份 CHANGELOG（重要）
 
 - 仓库**没有任何 git tag**（`git tag` → 空），也没有 `pyproject.toml` 的历史版本，唯一的版本号是 `src/__init__.py` 里的 `__version__ = "1.0.0"`，从首次提交起就没变过。所以**无法按版本号切分历史**，只能按提交类型切。
@@ -22,9 +24,9 @@
 | `5221621` | `ci` | 拆 `check`（ruff + mypy + pytest，10 min）/ `update`（抓取→生成→产物体检→推送，45 min）；显式 `permissions` 与 `concurrency`；变更检测从 `git diff --stat \| grep "0 files changed"`（永假）改为 `git status --porcelain`；接入 dependabot；新增 `scripts/check_output.py` 产物保险丝 |
 | `7ff4be1` | `build(依赖)` | `requirements.txt` 从 4 条下界改为 11 个精确 pin 的传递闭包，删掉 2 个零引用依赖；新增 dev 依赖与 `pyproject.toml`（`requires-python = ">=3.11"`、ruff/mypy 配置）、`pytest.ini`；`.gitignore` 补缓存目录 |
 | `3020583` | `test` | 306 例回归基线（`283 passed, 23 xfailed`，1.4s），含 golden 分类表与「已知缺陷契约」xfail |
-| 本文所在提交 | `docs` | 重写 README；新增 `CHANGELOG.md`、`LICENSE`(MIT)、`docs/architecture.md`、`docs/getting-started.md`；`reports/` 审计报告入库以便文档交叉引用 |
+| 本文所在提交 | `docs` | 重写 README；新增 `CHANGELOG.md`、`LICENSE`(MIT)、`docs/architecture.md`、`docs/getting-started.md` |
 
-设计与依据见 `docs/ci.md` 与 `reports/audit-c-engineering.md`。
+设计与依据见 `docs/ci.md` 与本地审计报告 `audit-c-engineering.md`。
 
 ⚠️ 版本号仍是 `src/__init__.py` 的 `1.0.0`，仓库仍无 tag —— `1.1.0` 这个标题只是给这批提交一个可引用的名字，不代表已打 tag。
 
@@ -82,7 +84,7 @@
 
 日均约 1 次，但**不是每天成功**：一个月有 27~31 次产物提交，说明个别日子没有产出（源全挂、CI 失败、或产物与前一天逐字节相同因而没提交）。这些日子没有任何记录留下——没有 issue、没有日志、没有告警。
 
-期间产物量的波动（据 `reports/audit-c-engineering.md` §1.2 的全历史扫描，本条未复测）：`hk_merged.m3u` 的频道数在整个历史里最小 18、最大 39、最后一次 33，**从未接近提交信息里提到的 162**。
+期间产物量的波动（据 本地审计报告 `audit-c-engineering.md` §1.2 的全历史扫描，本条未复测）：`hk_merged.m3u` 的频道数在整个历史里最小 18、最大 39、最后一次 33，**从未接近提交信息里提到的 162**。
 
 ---
 
