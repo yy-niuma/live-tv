@@ -2,7 +2,7 @@
 
 > 本文引用的 `audit-c-engineering.md` 是只读审计产出，**不入库**（见 `.gitignore`），只存在于本地磁盘。
 
-本文描述 `live-tv` 当前代码的**真实结构**：每个文件的行数用 `wc -l` 打出来，数据流按 `src/main.py` 的实际调用顺序画，已知问题交叉引用 本地审计报告 `audit-c-engineering.md` 的章节号（那份报告是只读审计，本文所有结论都能用命令复核）。
+本文描述 `live-tv` 当前代码的**真实结构**：每个文件的行数用 `wc -l` 打出来，数据流按 `src/main.py` 的实际调用顺序画，已知问题交叉引用审计报告 `audit-c-engineering.md` 的章节号（该报告只读、不入库；本文所有结论都能用命令复核）。
 
 > 基线：数据提交 `074c677` 之上的工程整改批次（`871e32d` 退出码修复、`5221621` CI、`7ff4be1` 依赖与工程配置、`3020583` 测试）。行数与行号均按当前工作区实测。
 
@@ -115,7 +115,7 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 - `fetch_all()` 用 `asyncio.gather(return_exceptions=True)`，单源失败只 `print`，不中断。
 - 抓完按 URL 去重（`seen` 集合），所以同一条流在多源出现时只留一份，`_source`/`_priority` 也跟着第一条走。
 
-已知问题：`self._semaphore` 在 `__init__` 里是 `None`，只有 `fetch_all()` 开头才赋值，单独调 `_fetch_url()` 会 `AttributeError`；`_fetch_m3u()` 把 HTTP 与解析耦在一起，无法单测（本地审计报告 `audit-c-engineering.md` §3.5b、§5 第 2 步）；库层用 `print` 而非 `logging`（§1.5）。
+已知问题：`self._semaphore` 在 `__init__` 里是 `None`，只有 `fetch_all()` 开头才赋值，单独调 `_fetch_url()` 会 `AttributeError`；`_fetch_m3u()` 把 HTTP 与解析耦在一起，无法单测（审计报告 `audit-c-engineering.md` §3.5b、§5 第 2 步）；库层用 `print` 而非 `logging`（§1.5）。
 
 ### 3.3 `validator.py`（92 行）
 
@@ -249,6 +249,6 @@ group.normalize ──► lib.whitelist   （函数内 import，带 try/except I
 
 ## 7. 与审计报告的差异（为什么数字对不上）
 
-本地审计报告 `audit-c-engineering.md` §1.1 记的代码规模是 **2,161 行 / 14 个 .py / `main.py` 159 行**；本次 `wc -l` 得到 **2,170 行 / `main.py` 168 行**。差 9 行全部来自 `src/main.py` 的退出码修复（`print` + `return` → `file=sys.stderr` + `raise SystemExit(1)`，提交 `871e32d`）：`git show 074c677:src/main.py | wc -l` → `159`，当前 HEAD → `168`。其余文件行数与报告逐条一致。
+审计报告 `audit-c-engineering.md` §1.1 记的代码规模是 **2,161 行 / 14 个 .py / `main.py` 159 行**；本次 `wc -l` 得到 **2,170 行 / `main.py` 168 行**。差 9 行全部来自 `src/main.py` 的退出码修复（`print` + `return` → `file=sys.stderr` + `raise SystemExit(1)`，提交 `871e32d`）：`git show 074c677:src/main.py | wc -l` → `159`，当前 HEAD → `168`。其余文件行数与报告逐条一致。
 
 同理，报告 §1.2 说「零测试、182 次机器人提交」——机器人提交今天已是 183 次；「零测试」在 186 个历史提交里成立，但 `3020583` 起仓库已有 306 个用例（283 passed / 23 xfailed）。报告描述的是整改前的状态，本文描述现状。
