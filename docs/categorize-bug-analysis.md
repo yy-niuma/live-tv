@@ -210,7 +210,7 @@ Now財經    cat=🌐 国际       hk=False
 
 **建议修法**：把港澳台判定抽成唯一事实来源 `_region_category()`，`is_hk_region` 与 `categorize` 都调它；`凤凰/星空` 单独归入「仅地域」表（地域属港、分类归卫视）。验收用不变量断言（§6）。
 
-**风险**：`hk_merged` 会新增约 50 条（实测 92→141，含 `PhoenixChineseChannel`/`PhoenixInfoNewsChannel`/`TVBSNews`/`TDM-MacauSatellite` 等），需要人工抽查一遍新增项；**实测更正**：本次合并后 `is_hk_region()` 覆盖 92 → 141，**丢失 0 条**（`凤凰香港台` / `凤凰卫视` / `星空卫视` / `StarTV` / `phoenix` 仍全部 `hk=True`）。原稿此处写的「`凤凰香港台` 会从 hk 列表消失」不成立，已删。真正的残留是反过来的：`ATV`（亚洲电视，香港）实测 `is_hk_region('ATV')=False`、分类却是 `📡 卫视频道`，因为 `\batv\b` 现在命中「卫视频道」规则而港区规则没有裸 ATV 词条。
+**风险**：`hk_merged` 会新增约 50 条（实测 92→141，含 `PhoenixChineseChannel`/`PhoenixInfoNewsChannel`/`TVBSNews`/`TDM-MacauSatellite` 等），需要人工抽查一遍新增项；**实测更正**：本次合并后 `is_hk_region()` 覆盖 92 → 141，**丢失 0 条**（后续第二遍修 `\b` 在 CJK/数字边界失效的问题，最终覆盖为 92 → 145，见 README「第二遍修正」）（`凤凰香港台` / `凤凰卫视` / `星空卫视` / `StarTV` / `phoenix` 仍全部 `hk=True`）。原稿此处写的「`凤凰香港台` 会从 hk 列表消失」不成立，已删。真正的残留是反过来的：`ATV`（亚洲电视，香港）实测 `is_hk_region('ATV')=False`、分类却是 `📡 卫视频道`，因为 `\batv\b` 现在命中「卫视频道」规则而港区规则没有裸 ATV 词条。
 
 ### 4.5 D07–D12：其余裸子串
 
@@ -487,4 +487,4 @@ RESULT: FAIL
 | `test_categorize_golden[intl-01-bbc-world-news]` 失败 | **需人工裁决**：golden 断言 `🌐 国际频道`，`known_bugs.tsv` 要求 `📰 新闻财经`，二者互斥 |
 | `mtv` 加边界后的 55 条（`BestofMTV`/`HumTV` 等）改落 `🎭 综艺频道` | **口径未拍板**：保留裸 `mtv` 则 88 条宗教/综合台继续被误判为音乐，二选一 |
 | 逐步（S1–S6）中间态数字 | **未实测**；方案文档 §5 的"验收"列是可测的目标值，不是已测结果 |
-| `hk_merged` 新增 49 条频道的播放可用性 | **未验证**（只验证了分类/地域口径，URL 有效性依赖 Validator） |
+| `hk_merged` 新增 53 条频道的播放可用性 | **未验证**（只验证了分类/地域口径，URL 有效性依赖 Validator） |
