@@ -30,11 +30,11 @@ live-tv/
 └── output/                all_merged.m3u / hk_merged.m3u / stats.json
 ```
 
-行数（`wc -l src/*.py src/group/*.py src/lib/*.py`，合计 **2,191**）：
+行数（`wc -l src/*.py src/group/*.py src/lib/*.py`，合计 **2,198**）：
 
 | 文件 | 行数 | 占比 | 职责 |
 |---|---:|---:|---|
-| `src/group/categorizer.py` | 677 | 30.9% | 分类规则与判定：`_match()` `HK_TW_MO_RULES` `_region_category()` `is_hk_region()` `recategorize_others()` `categorize()` |
+| `src/group/categorizer.py` | 684 | 31.1% | 分类规则与判定：`_match()` `HK_TW_MO_RULES` `_region_category()` `is_hk_region()` `recategorize_others()` `categorize()` |
 | `src/group/normalize.py` | 318 | 14.5% | 频道名归一（繁简、噪声、别名）、URL 优先级、同名合并 |
 | `src/logo_map.py` | 302 | 13.8% | 硬编码 logo 表 + `get_logo()` / `get_logo_fuzzy()` |
 | `src/fetcher.py` | 187 | 8.5% | `Channel` 数据类 + 20 源并发抓取 + M3U/YAML 解析 + 按 URL 去重 |
@@ -139,7 +139,7 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 
 已知问题：`strip_noise()` 里 `re.compile(r'\s+').sub('', ...)` 把**所有内部空格删掉**（实测 `"TVB 翡翠台"` → `"TVB翡翠台"`），下游 `logo_map` 只能靠 `norm_nospace` 分支打补丁（§3.5）；`_SPECIAL_MAPPING` 每次调用重建；`original` 变量赋值后未使用。
 
-### 3.6 `group/categorizer.py`（677 行）
+### 3.6 `group/categorizer.py`（684 行）
 
 全项目最重的文件：`PROVINCE_KEYWORDS`（32 组省级关键词表）+ `HK_TW_MO_RULES` + 一系列分类正则 + 8 个函数。
 
@@ -280,6 +280,6 @@ group.normalize ──► lib.whitelist   （函数内 import，带 try/except I
 
 ## 7. 与审计报告的差异（为什么数字对不上）
 
-审计报告 `audit-c-engineering.md` §1.1 记的代码规模是 **2,161 行 / 14 个 .py / `main.py` 159 行**；当前 `wc -l` 得到 **2,191 行 / `main.py` 168 行**。其中 9 行来自 `src/main.py` 的退出码修复（`print` + `return` → `file=sys.stderr` + `raise SystemExit(1)`，提交 `871e32d`）：`git show 074c677:src/main.py | wc -l` → `159`，当前 HEAD → `168`；另外 +7 行来自 `src/group/categorizer.py`（670 → 677）、+14 行来自 `src/generator.py`（182 → 196），都是 2026-10-29 分组逻辑重构（`a00e134`）带来的。报告记录时其余文件行数逐条一致。
+审计报告 `audit-c-engineering.md` §1.1 记的代码规模是 **2,161 行 / 14 个 .py / `main.py` 159 行**；当前 `wc -l` 得到 **2,198 行 / `main.py` 168 行**。其中 9 行来自 `src/main.py` 的退出码修复（`print` + `return` → `file=sys.stderr` + `raise SystemExit(1)`，提交 `871e32d`）：`git show 074c677:src/main.py | wc -l` → `159`，当前 HEAD → `168`；+14 行来自 `src/generator.py`（182 → 196）；`src/group/categorizer.py` 从 670 涨到 **684**，其中 +7 来自 2026-10-29 分组逻辑重构（`a00e134`，670 → 677）、+7 来自随后的第二遍修正（`8a292b3`，677 → 684，主要是说明 `\b` 在 CJK/数字边界失效的注释）。报告记录时其余文件行数逐条一致。
 
 同理，报告 §1.2 说「零测试、182 次机器人提交」——机器人提交今天已是 **183** 次（`git rev-list --count --author=github-actions HEAD`）；「零测试」在 189 个历史提交里成立（`git rev-list --count 3020583^` → 189），但 `3020583` 起仓库已有 **306** 个用例，分组重构后为 **305 passed / 7 xfailed**（312 例）。报告描述的是整改前的状态，本文描述现状。
