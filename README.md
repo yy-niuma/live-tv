@@ -4,7 +4,10 @@
 
 - 仓库：<https://github.com/yy-niuma/live-tv>
 - 入口：`python -m src.main`（必须在**仓库根目录**执行，见「已知限制」#10）
-- 授权：MIT，见 [LICENSE](LICENSE)
+- 授权：仓库内 [LICENSE](LICENSE) 为 MIT。**但这是 2026-10-29 补齐时新建的** ——
+  在此之前全仓零许可证线索（无 `LICENSE`/`COPYING`/`NOTICE` 文件、`pyproject.toml` 无 `license` 字段、
+  无 `setup.py`/`setup.cfg`、源码无 `SPDX`/`Copyright` 头、`git log --grep=licen` 无相关提交）。
+  **著作权人与许可证选择须由 owner 确认**；若 owner 选别的许可证，直接替换该文件即可。
 
 > 本文所有数字都是命令跑出来的，每条都在文末「数字核实」与 [`docs/getting-started.md`](docs/getting-started.md) 给了可复现命令。**产物数字每天都会变**，本文写的是仓库当前快照（`git log -1` = `074c677`，2026-10-29）。
 
