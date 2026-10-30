@@ -175,3 +175,26 @@ sources:
     url: "https://raw.githubusercontent.com/MillerArice/iptv/main/m3u/港台.m3u"
     enabled: true
     priority: 5
+
+  # === 官方直连（2026-10-30 调研新增）===
+  # 调研了 32 个候选源，实测结论：聚合 m3u 源已榨干（新增可播 = 0，
+  # 全与现有 19575 条语料重叠）。真正能加的只有**官方直连**。
+  - name: "tdm-macau-official"
+    # 澳门广播电视台（TDM）官方直播。实测 6 路全 200 + 1080p。
+    # 只收 ch5（澳门资讯）：ch1/ch6 在版权节目时段会切「版權所限」占位卡，
+    # ch2 是法语/葡语外购内容，ch3 与现有「澳視衛星」疑似同源。
+    # 抽帧核实：澳門資訊台标 + 时间/天气条 + 体育新闻跑马灯 → 正常播出。
+    # 这是「单流直连」源：URL 本身就是一个可播的 HLS 播放列表，
+    # 没有 #EXTINF，抓取器走 _as_single_stream 把它当成 1 个频道。
+    display_name: "澳门资讯"
+    url: "https://live5.tdm.com.mo/ch5/info_ch5.live/playlist.m3u8"
+    enabled: true
+    priority: 1
+
+  - name: "bstv-hk-official"
+    # 耀才财经台（BSTV）官方 webcast —— 香港券商自办频道，现有 66 条里没有。
+    # 抽帧核实：BSTV 台标 + 20:28:41 实时时钟 + 上证/港股行情 → 真直播。
+    display_name: "耀才财经台"
+    url: "https://v3.mediacast.hk/webcast/bshdlive-pc/playlist.m3u8"
+    enabled: true
+    priority: 1
