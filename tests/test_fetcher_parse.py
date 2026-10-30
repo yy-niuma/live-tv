@@ -207,3 +207,126 @@ async def test_zero_channel_source_is_not_an_exception(monkeypatch, capsys):
     assert chans == []
     out = capsys.readouterr().out
     assert "WARNING" in out and "dead" in out
+
+
+# ── 来源标记剥离：m3u 分支（这次补上的主要缺口）──────────────────
+#
+# 背景：`config/sources.yaml` 里的 `free-tv-all` 指向
+# `Free-TV/IPTV/master/playlist.m3u8`（走 m3u 分支）。旧代码只在 markdown 表格分支
+# `strip()` 首尾标记，m3u 分支一个都不剥，于是 `PhoenixⒼ` / `SomaliCableTVⓈ`
+# 这类名字原样进了产物。该源实测 2053 条 EXTINF，其中 467 条带标记。
+
+# 真实 playlist.m3u8 的 EXTINF 形态（带 tvg-id / group-title），名字带各种位置的标记
+FREE_TV_ALL_M3U = """#EXTM3U x-tvg-url="https://epg.pw/xmltv/epg_XX.xml"
+#EXTINF:-1 tvg-id="Phoenix.hk" tvg-logo="https://x/phoenix.png" group-title="Hong Kong",PhoenixⒼ
+https://example.com/phoenix.m3u8
+#EXTINF:-1 group-title="Spain",ATV+NoticiasⓎ
+https://example.com/atv.m3u8
+#EXTINF:-1 group-title="UK",BBC Parliament Ⓢ Ⓣ
+https://example.com/parliament.m3u8
+#EXTINF:-1 group-title="Somalia",SomaliCableTVⓈ
+https://example.com/somali.m3u8
+#EXTINF:-1 group-title="Azerbaijan",MTV Azerbaijan Ⓢ Ⓨ
+https://example.com/mtvaz.m3u8
+#EXTINF:-1 group-title="Albania",Kanali 7 Ⓢ
+https://example.com/kanali7.m3u8
+"""
+
+
+def test_parse_m3u_text_strips_markers_glued_to_name(fetcher):
+    """m3u 分支：标记与名字黏连（`PhoenixⒼ`）必须剥干净。"""
+    names = [c.name for c in fetcher.parse_m3u_text(FREE_TV_ALL_M3U)]
+    assert names == [
+        "Phoenix",
+        "ATV+Noticias",
+        "BBC Parliament",
+        "SomaliCableTV",
+        "MTV Azerbaijan",
+        "Kanali 7",
+    ]
+    for name in names:
+        assert not any(m in name for m in "ⒼⓈⓉⒻⓎⓃ")
+
+
+def test_parse_m3u_text_strips_markers_in_the_middle(fetcher):
+    """标记夹在中间 / 多个连着 / 前后带空格：`BBC Parliament Ⓢ Ⓣ` -> 不留双空格。"""
+    names = [c.name for c in fetcher.parse_m3u_text(FREE_TV_ALL_M3U)]
+    assert "BBC Parliament" in names
+    assert "MTV Azerbaijan" in names
+    assert "BBC Parliament " not in names
+
+
+def test_parse_m3u_text_marker_stripping_keeps_attrs(fetcher):
+    """剥标记不能顺手把 tvg-logo / group-title 弄丢。"""
+    phoenix = fetcher.parse_m3u_text(FREE_TV_ALL_M3U)[0]
+    assert phoenix.name == "Phoenix"
+    assert phoenix.logo == "https://x/phoenix.png"
+    assert phoenix.group == "Hong Kong"
+
+
+def test_parse_text_m3u_branch_has_no_markers(fetcher):
+    """剥离发生在 Channel 出口，不该改变格式嗅探结论和条数。"""
+    r = fetcher.parse_text(FREE_TV_ALL_M3U)
+    assert r.format == "m3u"
+    assert len(r.channels) == 6
+    assert not any(m in c.name for c in r.channels for m in "ⒼⓈⓉⒻⓎⓃ")
+
+
+def test_parse_markdown_table_strips_markers_in_the_middle(fetcher):
+    """markdown 分支此前只 strip 首尾 —— `A Ⓢ Ⓣ` 这类会留下 `Ⓢ Ⓣ`。"""
+    md = """| #   | Channel | Link | Logo | EPG id |
+|:---:|:-------:|:----:|:----:|:------:|
+| 1   | BBC Parliament Ⓢ Ⓣ | [>](https://example.com/p.m3u8) |  | BBCParliament.uk |
+| 2   | Al Jazeera English Ⓕ | [>](https://example.com/aje.m3u8) |  | AlJazeeraEnglish.qa |
+"""
+    names = [c.name for c in fetcher.parse_markdown_table(md)]
+    assert names == ["BBC Parliament", "Al Jazeera English"]
+    assert not any(m in n for n in names for m in "ⒼⓈⓉⒻⓎⓃ")
+
+
+def test_parse_yaml_text_strips_markers(fetcher):
+    """yaml 分支同样不许残留标记（统一出口的第三个调用方）。"""
+    text = """
+streams:
+  - name: CCTV-1 综合 Ⓢ
+    url: https://example.com/cctv1.m3u8
+    logo: https://x/1.png
+    group: CCTV
+"""
+    chans = fetcher.parse_yaml_text(text)
+    assert chans[0].name == "CCTV-1 综合"
+
+
+def test_channel_constructor_strips_markers():
+    """Channel 是所有分支的唯一出口，直接构造也必须剥。"""
+    from src.fetcher import Channel
+
+    assert Channel(name="HornCableTVⓎ", url="https://e/1.m3u8").name == "HornCableTV"
+    assert Channel(name="  HOY TV Ⓖ  ", url="https://e/2.m3u8").name == "HOY TV"
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("HOY TV Ⓖ", "HOY TV"),
+        ("PhoenixⒼ", "Phoenix"),
+        ("BBC Parliament Ⓢ Ⓣ", "BBC Parliament"),
+        ("MTV Azerbaijan Ⓢ Ⓨ", "MTV Azerbaijan"),
+        ("Encuentro Ⓨ Ⓖ", "Encuentro"),
+        ("CCTV-1 综合 Ⓢ", "CCTV-1 综合"),
+        ("Ⓖ", ""),
+        ("BBC Parliament", "BBC Parliament"),
+    ],
+)
+def test_strip_source_markers_cases(raw, expected):
+    from src.fetcher import strip_source_markers
+
+    assert strip_source_markers(raw) == expected
+
+
+def test_strip_source_markers_does_not_touch_other_chars():
+    """只剥那 6 个字符：汉字、加号、括号、感叹号都必须原样保留。"""
+    from src.fetcher import strip_source_markers
+
+    for name in ["CCTV-5+ 体育赛事", "(A) TV", "ATV+Noticias", "TVB 85", "9Go!" , "M+"]:
+        assert strip_source_markers(name) == name

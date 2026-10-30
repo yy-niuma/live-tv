@@ -55,6 +55,10 @@ class Grouper:
                 "url": ch.url,
                 "logo": ch.logo,
                 "group": ch.group,
+                # tvg-id 是 EPG 主键：产物头部声明了 x-tvg-url，没有这个键
+                # 播放器绑不上节目表。这趟「Channel -> dict」必须带着它走，
+                # 否则解析层抓到的 id 在这里被丢掉。
+                "id": getattr(ch, "id", ""),
                 "_normalized_name": ch._normalized_name,
             })
 
@@ -71,8 +75,15 @@ class Grouper:
                 url=ch_dict.get("url", ""),
                 logo=ch_dict.get("logo", ""),
                 group=ch_dict.get("group", ""),
+                id=ch_dict.get("id", ""),
             )
             ch._normalized_name = normalized
+            # 备选链路（normalize.py 合并同名频道时算出）随频道一起交到产出层，
+            # 由 src/generator.py 渲染成主 URL 之后的 #EXTBACKUP: 注释行。
+            # 用动态属性而不是改 Channel 字段：Channel 属采集层文件，不归本改动。
+            # setattr 只为绕开静态检查（Channel.__init__ 未声明该属性）；
+            # 运行期与 `ch._backup_urls = [...]` 完全等价。
+            setattr(ch, "_backup_urls", list(ch_dict.get("_backup_urls") or []))
             channels.append(ch)
 
         # 3. 分组

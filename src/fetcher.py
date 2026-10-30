@@ -28,11 +28,24 @@ from .config import Config
 class Channel:
     """频道对象"""
 
-    def __init__(self, name: str, url: str, logo: str = "", group: str = "", **kwargs):
-        self.name = name.strip()
+    def __init__(
+        self,
+        name: str,
+        url: str,
+        logo: str = "",
+        group: str = "",
+        id: str = "",  # noqa: A002 —— 历史/播放器口径就叫 tvg-id，属性名保持 ch.id
+        **kwargs,
+    ):
+        # 唯一出口：m3u / markdown / yaml 三条解析分支都从这里过，
+        # 名字里的 Free-TV 来源标记（ⒼⓈⓉⒻⓎⓃ）在这里统一剥掉，见 strip_source_markers()。
+        self.name = strip_source_markers(name)
         self.url = url.strip()
         self.logo = logo.strip() if logo else ""
         self.group = group.strip() if group else ""
+        # tvg-id：EPG 绑定键（例：`CelestialMovies.hk@SD`）。源里没有就是空串 ——
+        # 绝不用频道名伪造，伪造出来的 id 在节目表里查不到，比空串更糟。
+        self.id = id.strip() if id else ""
         self.raw_attrs = kwargs
         # _normalized_name 通过 kwargs 传入（grouper.py 依赖此属性）
         self._normalized_name = kwargs.pop("_normalized_name", "") if kwargs else ""
@@ -41,10 +54,41 @@ class Channel:
         return f"<Channel {self.name} ({self.group})>"
 
 
-# markdown 表格里 Free-TV 用的来源标记，不属于频道名
-_MARKDOWN_NAME_MARKERS = "ⒼⓈⓉⒻⓎⓃ"
+# Free-TV 列表里用来标注来源/可访问性的标记字符，不属于频道名。
+# 含义（Free-TV README 只定义了前三条）：Ⓖ GeoIP 屏蔽 · Ⓢ 非 HD · Ⓨ YouTube 直播，
+# Ⓣ/Ⓕ/Ⓝ 未说明。它们既出现在 markdown 表格源里，也出现在官方 playlist.m3u8 的
+# m3u 源里（实测 2053 条 EXTINF 里 467 条带标记），所以剥离要做在所有分支的共用出口上。
+_SOURCE_NAME_MARKERS = "ⒼⓈⓉⒻⓎⓃ"
+_MARKER_CHARS_RE = re.compile("[" + _SOURCE_NAME_MARKERS + "]+")
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def strip_source_markers(name: str) -> str:
+    """去掉频道名里的来源标记字符，并收干净留下的空格。
+
+    覆盖「标记在尾部」「标记夹在中间」「多个标记连着」「标记前后有空格」
+    以及标记与名字黏连（`PhoenixⒼ`）这几种真实形态：
+
+        'HOY TV Ⓖ'            -> 'HOY TV'
+        'BBC Parliament Ⓢ Ⓣ' -> 'BBC Parliament'
+        'PhoenixⒼ'            -> 'Phoenix'
+        'MTV Azerbaijan Ⓢ Ⓨ' -> 'MTV Azerbaijan'
+
+    只动前面列出的那 6 个字符；标记与文字黏连时补一个空格而不是直接删掉，
+    避免 `AⒼB` 被粘成 `AB` 这种凭空造词的后果。
+    """
+    if not name:
+        return ""
+    cleaned = _MARKER_CHARS_RE.sub(" ", name)
+    return _WHITESPACE_RE.sub(" ", cleaned).strip()
+
+
 _MD_LINK_RE = re.compile(r"\[>?\]?\((?P<url>https?://[^)\s]+)\)")
 _MD_LOGO_RE = re.compile(r'src="(?P<logo>https?://[^"]+)"')
+
+# 名字里若还残留 `tvg-…=` / `group-title=`，说明这条 EXTINF 把属性写到了
+# 时长后面的逗号之后（`#EXTINF:-1,tvg-id="X" …`），见 parse_m3u_text 的兜底。
+_INLINE_ATTR_RE = re.compile(r'(?:tvg-(?:id|name|logo|chnid)|group-title|attribute)=')
 
 
 @dataclass
@@ -61,7 +105,12 @@ class Fetcher:
     _EXTINF_RE = re.compile(
         r"#EXTINF:(?P<duration>-?\d+)\s*(?P<attributes>[^,]*),\s*(?P<name>.+)"
     )
-    _ATTR_RE = re.compile(r'(?P<key>tvg-(?:name|logo|chnid)|group-title|attribute)="(?P<value>[^"]*)"')
+    # 属性白名单。`id` 必须在这里 —— 源里（iptv-org 的 streams/*.m3u）用 tvg-id 做
+    # EPG 主键，之前漏捕它，导致产物有 x-tvg-url 却没有任何绑定键，节目表接不上。
+    # 前缀剥离见 parse_m3u_text（key.replace("tvg-", "")），`tvg-id` → `id`。
+    _ATTR_RE = re.compile(
+        r'(?P<key>tvg-(?:id|name|logo|chnid)|group-title|attribute)="(?P<value>[^"]*)"'
+    )
 
     def __init__(self, config: Config = None, max_concurrent: int = 10, max_retries: int = 3):
         self.config = config or Config()
@@ -178,15 +227,29 @@ class Fetcher:
                 m = self._EXTINF_RE.match(line)
                 if m:
                     attrs_str = m.group("attributes")
+                    name = m.group("name")
+                    # 有些源把属性写在「时长」后面的逗号*之后*：
+                    #     #EXTINF:-1,tvg-id="CCTV1" tvg-name="CCTV1" group-title="X",CCTV1-4K
+                    # `attributes` 是 `[^,]*`，遇到 `-1,` 只抓到空串，剩下的整串属性
+                    # 会被当成频道名（实测 6 条 CCTV 4K 条目带出一整串 `tvg-…` 垃圾名）。
+                    # 这里把名字里最后一个逗号之前的部分拨回属性区，真名取最后一段。
+                    if _INLINE_ATTR_RE.search(name):
+                        head, sep, tail = name.rpartition(",")
+                        if sep and tail.strip():
+                            attrs_str = f"{attrs_str} {head}"
+                            name = tail
                     attrs = {}
                     for am in self._ATTR_RE.finditer(attrs_str):
                         key = am.group("key").replace("tvg-", "")
                         attrs[key] = am.group("value")
                     current = {
-                        "name": m.group("name"),
+                        "name": name,
                         "duration": m.group("duration"),
                         "logo": attrs.get("logo", ""),
                         "group": attrs.get("group-title", ""),
+                        # 正则未锚定，`x-tvg-id="..."` 里的 `tvg-id` 同样命中，
+                        # 因此这里只需认 "id"；源里没有就是空串，不伪造
+                        "id": attrs.get("id", ""),
                     }
             elif line.startswith("http"):
                 if current:
@@ -196,6 +259,7 @@ class Fetcher:
                             url=line,
                             logo=current.get("logo", ""),
                             group=current.get("group", ""),
+                            id=current.get("id", ""),
                         )
                     )
                     current = {}
@@ -213,8 +277,9 @@ class Fetcher:
 
         - 频道名 = 链接列**左边那一列**
         - logo = 行内 `<img src="...">`
-        - 名字尾部的地域标记（`Ⓖ` 表示 geoblocked、`Ⓢ` subscription、`Ⓣ` twitch、
-          `Ⓨ` YouTube 等）去掉，它们不是频道名的一部分
+        - 名字里的来源标记（`Ⓖ` GeoIP 屏蔽、`Ⓢ` 非 HD、`Ⓨ` YouTube 直播等）去掉，
+          它们不是频道名的一部分。标记可能在尾部，也可能夹在中间
+          （`BBC Parliament Ⓢ Ⓣ`），统一走 `strip_source_markers()`
         """
         channels: List[Channel] = []
         for raw_line in text.splitlines():
@@ -237,7 +302,8 @@ class Fetcher:
             if not name:
                 continue
 
-            name = name.strip().strip(_MARKDOWN_NAME_MARKERS).strip()
+            # 剥离来源标记（Channel 出口也会做，这里提前做是为了让空名判断有意义）
+            name = strip_source_markers(name)
             if not name:
                 continue
 

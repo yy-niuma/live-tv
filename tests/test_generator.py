@@ -21,9 +21,14 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from src.fetcher import Channel  # noqa: E402
 from src.generator import (  # noqa: E402
+    BACKUP_TAG,
     CATEGORY_ORDER,
+    GROUP_CAP,
     Generator,
+    build_backup_lines,
     build_extinf,
+    channel_sort_key,
+    get_backup_urls,
     is_clean_name,
     sort_key,
 )
@@ -348,3 +353,140 @@ def test_generate_creates_output_dir(make_channel, tmp_path):
     Generator().generate_hk_and_all({"📺 央视频道": [make_channel("CCTV-1 综合")]}, str(target))
     assert (target / "all_merged.m3u").is_file()
     assert (target / "hk_merged.m3u").is_file()
+
+
+# ──────────────────────────────────────────────────────────────
+#  failover：备选链路（_backup_urls → #EXTBACKUP: 注释行）
+# ──────────────────────────────────────────────────────────────
+def test_get_backup_urls_returns_backups_in_order(make_channel):
+    ch = make_channel("翡翠台", url="http://main.example/a.m3u8")
+    ch._backup_urls = ["http://b.example/b.m3u8", "http://c.example/c.m3u8"]
+    assert get_backup_urls(ch) == ["http://b.example/b.m3u8", "http://c.example/c.m3u8"]
+
+
+def test_get_backup_urls_drops_empty_duplicate_and_primary(make_channel):
+    ch = make_channel("翡翠台", url="http://main.example/a.m3u8")
+    ch._backup_urls = [
+        "",
+        "   ",
+        "http://main.example/a.m3u8",  # 与主链相同 → 不是备链
+        "http://b.example/b.m3u8",
+        "http://b.example/b.m3u8",  # 重复
+        None,
+    ]
+    assert get_backup_urls(ch) == ["http://b.example/b.m3u8"]
+
+
+def test_get_backup_urls_rejects_values_that_would_forge_extra_lines(make_channel):
+    """带换行的值能把一个坏 URL 变成额外行（进而被解析器当成新频道），必须拒。"""
+    ch = make_channel("翡翠台", url="http://main.example/a.m3u8")
+    ch._backup_urls = ["http://bad.example/x.m3u8\nhttp://evil.example/y.m3u8", "http://b.example/b.m3u8"]
+    assert get_backup_urls(ch) == ["http://b.example/b.m3u8"]
+
+
+def test_get_backup_urls_tolerates_missing_or_malformed_attribute(make_channel):
+    ch = make_channel("翡翠台")  # 没有 _backup_urls 属性
+    assert get_backup_urls(ch) == []
+    ch._backup_urls = None
+    assert get_backup_urls(ch) == []
+    ch._backup_urls = "http://b.example/b.m3u8"  # 误传裸字符串也接受
+    assert get_backup_urls(ch) == ["http://b.example/b.m3u8"]
+
+
+def test_build_backup_lines_uses_the_documented_comment_tag(make_channel):
+    ch = make_channel("翡翠台", url="http://main.example/a.m3u8")
+    ch._backup_urls = ["http://b.example/b.m3u8", "http://c.example/c.m3u8"]
+    assert build_backup_lines(ch) == [
+        "#EXTBACKUP:http://b.example/b.m3u8",
+        "#EXTBACKUP:http://c.example/c.m3u8",
+    ]
+    assert BACKUP_TAG == "#EXTBACKUP:"
+    # 注释行：必须以 # 开头，否则会被当成可播 URL（改变频道计数）
+    assert all(line.startswith("#") for line in build_backup_lines(ch))
+
+
+def test_build_extinf_does_not_carry_backup_urls(make_channel):
+    """EXTINF 只描述一个频道；备链走独立注释行，避免破坏 1:1 对应。"""
+    ch = make_channel("翡翠台", url="http://main.example/a.m3u8")
+    ch._backup_urls = ["http://b.example/b.m3u8"]
+    line = build_extinf(ch, "📺 TVB")
+    assert "b.example" not in line
+    assert line.count("\n") == 0
+
+
+def test_generate_writes_backups_right_after_the_primary_url(make_channel, tmp_path):
+    ch = make_channel("翡翠台", url="http://hkdtmb.com/jade.m3u8")
+    ch._backup_urls = ["http://b.example/b.m3u8", "http://c.example/c.m3u8"]
+    Generator().generate_hk_and_all({"📺 TVB": [ch]}, str(tmp_path))
+
+    for name in ("all_merged.m3u", "hk_merged.m3u"):
+        lines = (tmp_path / name).read_text(encoding="utf-8").split("\n")
+        idx = lines.index("http://hkdtmb.com/jade.m3u8")
+        assert lines[idx + 1] == "#EXTBACKUP:http://b.example/b.m3u8"
+        assert lines[idx + 2] == "#EXTBACKUP:http://c.example/c.m3u8"
+        # 主 URL 之后紧跟的是备链，然后才换下一条 EXTINF
+        assert lines[idx + 3].startswith("#EXTINF") or lines[idx + 3] == ""
+
+
+def test_backups_do_not_change_any_count(make_channel, tmp_path, parse_playlist):
+    """150 条带 2 条备链的频道：EXTINF 仍是 100 + 截断标记 50，不会被备链撑大。"""
+    chans = []
+    for i in range(150):
+        ch = make_channel(f"CCTV-5 体育 {i:03d}", url=f"http://example.invalid/c{i:03d}.m3u8")
+        ch._backup_urls = [f"http://b.example/b{i:03d}.m3u8", f"http://b.example/c{i:03d}.m3u8"]
+        chans.append(ch)
+    Generator().generate_hk_and_all({"📺 央视频道": chans}, str(tmp_path))
+
+    parsed = parse_playlist(tmp_path / "all_merged.m3u")
+    (group,) = parsed["groups"]
+    assert group["declared"] == 150
+    assert len(group["extinf"]) == GROUP_CAP == 100
+    assert len(group["urls"]) == 100, "备链不得被算成可播 URL"
+    assert group["extra"] == ["# ... and 50 more"]
+    assert parsed["raw"].count("#EXTBACKUP:") == 200
+
+
+# ──────────────────────────────────────────────────────────────
+#  组内确定性排序
+# ──────────────────────────────────────────────────────────────
+def test_channel_sort_key_is_name_then_url(make_channel):
+    a = make_channel("B台", url="http://z.example/1.m3u8")
+    b = make_channel("A台", url="http://z.example/2.m3u8")
+    c = make_channel("A台", url="http://a.example/3.m3u8")
+    assert sorted([a, b, c], key=channel_sort_key) == [c, b, a]  # A(a) < A(z) < B(z)
+
+
+def test_channel_sort_key_tolerates_missing_name_and_url():
+    class Bare:
+        name = None
+        url = None
+
+    assert channel_sort_key(Bare()) == ("", "")
+    assert channel_sort_key(Channel(name="A台", url="http://a.example/1.m3u8")) == (
+        "A台",
+        "http://a.example/1.m3u8",
+    )
+
+
+def test_generate_sorts_channels_inside_each_group(make_channel, tmp_path, parse_playlist):
+    """输入是乱序的：产物必须按 name（相同时 url）升序写出，而不是照抄输入顺序。"""
+    names = ["CCTV-9 纪录", "CCTV-1 综合", "CCTV-5 体育", "CCTV-1 综合 (备用)"]
+    grouped = {"📺 央视频道": [make_channel(n, url=f"http://example.invalid/{i}.m3u8") for i, n in enumerate(names)]}
+    Generator().generate_hk_and_all(grouped, str(tmp_path))
+
+    parsed = parse_playlist(tmp_path / "all_merged.m3u")
+    (group,) = parsed["groups"]
+    written = [line.rsplit(",", 1)[-1] for line in group["extinf"]]
+    assert written == sorted(written), f"组内顺序不确定/未排序: {written}"
+
+
+def test_truncation_keeps_the_first_n_in_sorted_order(make_channel, tmp_path, parse_playlist):
+    """截断挑哪 100 条也必须是确定的：排序在 [:]() 之前发生。"""
+    chans = [make_channel(f"CCTV-5 体育 {i:03d}") for i in range(150)]
+    Generator().generate_hk_and_all({"📺 央视频道": chans}, str(tmp_path))
+    parsed = parse_playlist(tmp_path / "all_merged.m3u")
+    (group,) = parsed["groups"]
+    written = [line.rsplit(",", 1)[-1] for line in group["extinf"]]
+    assert written == sorted(written)
+    assert written[0] == "CCTV-5 体育 000"
+    assert written[-1] == "CCTV-5 体育 099"
