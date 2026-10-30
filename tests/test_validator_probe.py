@@ -290,12 +290,38 @@ def test_whitelisted_playlist_that_is_real_passes(monkeypatch):
 
 
 def test_whitelisted_non_playlist_url_makes_no_request(monkeypatch):
-    """白名单里的非播放列表 URL 仍然 0 请求放行（保留原有省请求语义）。"""
+    """白名单里的非播放列表 URL 仍然 0 请求放行（保留原有省请求语义）。
+
+    注意 URL 必须是**真非播放列表**（无 .m3u8/.m3u 后缀）。旧版这条用例
+    用的是 `.../y.m3u`，本身就会被 `_looks_like_playlist_url` 认成播放列表
+    并真的发 GET，只是当年空 body 被判成「保守放行」才碰巧通过 —— 测的
+    其实不是它名字说的那件事。
+    """
     v = Validator()
     v._semaphore = asyncio.Semaphore(1)
     session = _patch_session(monkeypatch, FakeSession())
 
-    ok = asyncio.run(v._check_whitelisted("https://cdn.jsdelivr.net/gh/x/y.m3u"))
+    ok = asyncio.run(v._check_whitelisted("https://cdn.jsdelivr.net/gh/x/y.ts"))
+    assert ok is True
+    assert session.get_calls == [] and session.head_calls == []
+
+
+def test_whitelisted_plain_text_playlist_is_accepted(monkeypatch):
+    """`text/plain` 的真实播放列表必须放行。
+
+    实测 hidns/cdn6 这类聚合源就长这样：Content-Type 标 text/plain，
+    body 是合法 HLS。只认 mpegurl 会把这批真能播的源全判死。
+    """
+    v = Validator()
+    v._semaphore = asyncio.Semaphore(1)
+    body = b"#EXTM3U\n#EXT-X-VERSION:3\n#EXTINF:10.0,\n/api/rthk31/386921\n"
+    _patch_session(
+        monkeypatch, FakeSession(FakeResp(200, "text/plain", body))
+    )
+
+    ok = asyncio.run(
+        v._check_whitelisted("https://raw.githubusercontent.com/x/y/plain.m3u8")
+    )
     assert ok is True
 
 
@@ -305,6 +331,11 @@ def test_whitelisted_read_failure_stays_lenient(monkeypatch):
     白名单里的 cloudfront/akamai 主机在本机常返回 403（地理封锁），
     但频道本身是活的。读不到 body 就没有证据说它假，保持放行。
     这是刻意的不对称：宁可留一条可能活的，也不用「读不到」当「死」。
+
+    **URL 必须带 .m3u8 后缀**：`_check_whitelisted` 对非播放列表 URL 直接
+    0 请求放行（短路返回 True）。旧版这条用例用的是 `/live/tvbsnews`
+    （无后缀），根本没走到读 body，所以它测的从来不是「读失败」——
+    把 `_read_body` 的异常返回从 `None` 改成 `""` 它照样绿。
     """
     v = Validator()
     v._semaphore = asyncio.Semaphore(1)
@@ -318,11 +349,46 @@ def test_whitelisted_read_failure_stays_lenient(monkeypatch):
             super().__init__(403, "text/html", b"")
             self.content = _BoomContent()
 
-    _patch_session(monkeypatch, FakeSession(_BoomResp()))
+    session = _patch_session(monkeypatch, FakeSession(_BoomResp()))
     ok = asyncio.run(
-        v._check_whitelisted("https://d2jc41c1shgcol.cloudfront.net/live/tvbsnews")
+        v._check_whitelisted(
+            "https://d2jc41c1shgcol.cloudfront.net/live/tvbsnews/playlist.m3u8"
+        )
     )
+    assert session.get_calls, "这条用例必须真的发请求，否则测不到读失败"
     assert ok is True, "读不到 body 时保守放行"
+
+
+def test_plain_text_without_playlist_suffix_is_probed(monkeypatch):
+    """无 `.m3u8` 后缀 + `Content-Type: text/plain` 的源必须真探并判活。
+
+    这是新增香港源（`https://fast.hidns.vip/163189/rthk31` 等）走的那条路：
+    URL 没有播放列表后缀 → 走 HEAD → 拿到 `text/plain` → 必须再补一次 GET
+    读 body。若 `_is_playlist_content_type` 不认 `text/plain`，就会只凭
+    HEAD 的 header 直接放行，body 里的占位片/伪直播全都看不到。
+    """
+    v = Validator()
+    v._semaphore = asyncio.Semaphore(1)
+    body = b"#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:10\n#EXTINF:10.0,\n/api/rthk31/386921\n"
+    session = _patch_session(
+        monkeypatch, FakeSession(FakeResp(200, "text/plain", body))
+    )
+
+    ok = asyncio.run(v._check_url("https://fast.hidns.vip/163189/rthk31"))
+    assert ok is True
+    assert len(session.head_calls) == 1, "无后缀 URL 先走 HEAD"
+    assert len(session.get_calls) == 1, "text/plain 必须补一次 GET 读 body"
+
+
+def test_plain_text_placeholder_without_suffix_is_dead(monkeypatch):
+    """同上路径，但 body 是占位片 —— 必须判死，不能只凭 header 放行。"""
+    v = Validator()
+    v._semaphore = asyncio.Semaphore(1)
+    body = b"<!doctype html><html><body>404 Not Found</body></html>\n"
+    _patch_session(monkeypatch, FakeSession(FakeResp(200, "text/plain", body)))
+
+    ok = asyncio.run(v._check_url("https://fast.hidns.vip/163189/bogus"))
+    assert ok is False
 
 
 # ---------------------------------------------------------------------------
@@ -335,7 +401,11 @@ def test_whitelisted_read_failure_stays_lenient(monkeypatch):
 
 class _CountContent:
     async def read(self, limit=-1):
-        return b"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nchunk.m3u8\n"
+        # 必须是**非 master** 的 media 播放列表（不含 #EXT-X-STREAM-INF）——
+        # 本组用例只钉「HEAD 还是 GET」的请求策略；master 会额外触发一次
+        # 子流探测（见 tests/test_validator_master_child.py），那是另一件事，
+        # 混在一起会让计数断言失去意义。
+        return b"#EXTM3U\n#EXT-X-TARGETDURATION:10\n#EXTINF:10,\nseg.ts\n"
 
 
 class _CountResp:

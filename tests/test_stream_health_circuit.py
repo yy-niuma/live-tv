@@ -61,10 +61,15 @@ class _Resp:
 
 
 class _RespContent:
-    """响应体替身：空 body（不是播放列表占位片）。"""
+    """响应体替身：一个合法的播放列表 body（以 `#EXTM3U` 开头）。
+
+    内容层判定以 body 签名为准：body 不以 `#EXTM3U` 开头（含空 body）一律
+    判不可用。所以替身必须给真播放列表，否则这些熔断用例会被内容层判死，
+    测的就不是熔断逻辑了。
+    """
 
     async def read(self, limit=-1):
-        return b""
+        return b"#EXTM3U\n#EXTINF:10,\nseg.ts\n"
 
 
 class _Session:

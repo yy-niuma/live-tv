@@ -239,10 +239,45 @@ def test_valid_response_accepts_stream_content_types(validator, content_type):
 
 @pytest.mark.parametrize(
     "content_type",
-    ["text/html; charset=utf-8", "text/plain", "application/json"],
+    ["text/html; charset=utf-8", "application/json"],
 )
 def test_valid_response_rejects_non_stream_content_types(validator, content_type):
     assert validator._is_valid_response(_FakeResponse(200, content_type)) is False
+
+
+def test_valid_response_accepts_text_plain(validator):
+    """`text/plain` 必须在协议层放行。
+
+    实测 `fast.hidns.vip` / `cdn6.cc.cd` 这类聚合源把播放列表标成
+    `Content-Type: text/plain`，若在这一层就拒，这批真能播的源会被判死。
+    但放行只是「允许去读 body」，是不是播放列表由 `_is_valid_content`
+    按 body 是否以 `#EXTM3U` 开头决定 —— 见 test_content_layer_* 用例。
+    """
+    assert validator._is_valid_response(_FakeResponse(200, "text/plain")) is True
+
+
+@pytest.mark.parametrize(
+    "body,expected",
+    [
+        # 真播放列表：body 签名说了算，哪怕 Content-Type 是 text/plain
+        ("#EXTM3U\n#EXTINF:10,\nseg.ts\n", True),
+        # BOM + 前导换行也要认
+        ("\ufeff\n#EXTM3U\n#EXTINF:10,\nseg.ts\n", True),
+        # 空 body 的「播放列表」不是播放列表
+        ("", False),
+        ("   \n\t\n", False),
+        # 被标成 text/plain 的 HTML 错误页：不能当活源
+        ("<!doctype html><html><body>404 Not Found</body></html>", False),
+        # 占位片：有码流没节目
+        ("#EXTM3U\n#EXTINF:10,\nhttp://x/nosignal_h264/playlist.m3u8\n", False),
+        # 伪直播：下一跳是点播平台
+        ("#EXTM3U\n#EXTINF:10,\nhttps://www.youtube.com/watch?v=x\n", False),
+        # 读不到 body（None）→ 保守放行，不拿「读不到」当「假」
+        (None, True),
+    ],
+)
+def test_content_layer_body_signature(validator, body, expected):
+    assert validator._is_valid_content(body) is expected
 
 
 @pytest.mark.parametrize("status", [301, 403, 404, 500])

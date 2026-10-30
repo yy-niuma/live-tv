@@ -181,7 +181,14 @@ async def run(config_dir: str = None, output_dir: str = None, use_cache: bool = 
     # 3. 分组
     print("\n[Step 3/4] 分组频道...")
     stage_start = time.monotonic()
-    health = stream_health.load(health_file) if health_file else stream_health.load()
+    health = dict((stream_health.load(health_file) if health_file
+                   else stream_health.load()) or {})
+    # 本轮实测**覆盖**历史快照：快照是整轮跑完才落盘的，如果只用快照，合并时
+    # 用的是上一轮的结论 —— 上一轮「还活着」的死链会压过本轮新验到的活源
+    # （RTHK 31/32 就是被 `rthk.hk` 域的旧结论拖死的）。本轮通过验证的 URL
+    # 一律记为可播，判定以最新观测为准。
+    if valid_channels:
+        health.update({ch.url: True for ch in valid_channels})
     if health:
         good = sum(1 for v in health.values() if v)
         print(f"[Health] 载入 {len(health)} 条实测结果（可播 {good} / 不可播 {len(health) - good}）")
