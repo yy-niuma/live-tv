@@ -20,7 +20,11 @@
   5. 分组上限一致（核心）：每段 EXTINF 数必须等于 ``min(K, GROUP_CAP)``；
      K > GROUP_CAP 时必须存在 ``# ... and K-GROUP_CAP more`` 标记行，且剩余
      条数与之精确相等；K <= GROUP_CAP 时不得出现任何超额标记。
-  6. 香港列表：不做上限截断，声明数必须等于实际数；总数不得超过统计港澳台数。
+  6. 香港列表：不做上限截断，声明数必须等于实际数；**逐组**比较
+     ``hk_merged[g] <= stats[g]``（按 ``#EXTGRP`` 分组名逐一比，同名分段累加）；
+     hk 里出现 stats.json 中不存在的分组也报失败（两份产物不同源）。
+     全量合计（hk 总条数 vs 关键词口径的港澳台合计）只在报告里作**提示**，
+     不作失败条件 —— 两个口径不同源，见下方「已知口径事实」。
 
 阈值依据（实测值 + 余量，勿凭感觉调）：
     MIN_TOTAL_EXTINF = 1000
@@ -31,15 +35,26 @@
         实测 33；历史逐日 32/32/32/32/33（reports/audit-b-pipeline.md）。
         取 20 留 39% 余量，只防"香港列表被清空/砍半"，不防缓慢漂移。
 
-已知未固定的事实（见 reports/，属 src 缺陷，本脚本不改 src）：
-    stats.json 港澳台合计 44 而 hk_merged.m3u 只有 33。差额 11 = 12 条被
-    ``is_hk_region()`` 漏判 - 1 条跨组捞回（华丽翡翠台，logo 判为 🇨🇳 中国源）。
-    因此这里只断言"hk 列表 <= stats 港澳台"这条弱不变量。
+已知口径事实（2026-10-29 实测，属口径差而非 src 缺陷，本脚本不改 src）：
+    ``hk_merged.m3u`` 由 ``is_hk_region()`` **逐条**判定捞出来，stats.json 的
+    「港澳台合计」由 ``HK_GROUP_KEYWORDS`` **按分组名**筛出来，两者不同源。
+    实测 hk 81 条 / 8 个分段，而关键词口径合计 79：
+        · 进了 hk 却不在关键词表里的分组：``📡 卫视频道`` 3 + ``📺 有线电视`` 3 = 6；
+        · 在关键词分组里但没被 is_hk_region 捞到的：台湾 62 捞到 58，共缺 4；
+        · 75 + 6 = 81，79 - 4 + 6 = 81，差额全部由口径造成。
+    所以断言只能是**逐组** ``hk[g] <= stats[g]``（实测 8 组全过：卫视频道 3<=23、
+    TVB 8<=8、ViuTV 1<=1、RTHK 3<=3、HOY TV 2<=2、有线电视 3<=3、台湾 58<=62、
+    澳门 3<=3）。旧版拿合计比，在真实产物上必红（81 > 79），是假失败。
 
 用法：
     python scripts/check_output.py                       # 默认 output/stats.json
     python scripts/check_output.py path/to/stats.json     # m3u 取同目录兄弟文件
     python scripts/check_output.py stats.json --all-m3u a.m3u --hk-m3u h.m3u
+
+    复现（2026-10-29 控制器实测产物；本版修复前 EXIT=1，修复后 EXIT=0）：
+    python scripts/check_output.py \
+        /home/hermes/.hermes/cache/scratch/livetv_ci_run/stats.json
+    回归测试：pytest tests/test_check_output.py -p no:cacheprovider -q
 
 退出码：
     0  全部检查通过
@@ -368,15 +383,57 @@ def check_orphan_extinf(playlist: Playlist) -> list[str]:
     return []
 
 
-def check_hk_subset(playlist: Playlist, hk_stats: int) -> list[str]:
-    """hk_merged 是 stats 港澳台集合的子集，只能更少。"""
-    actual = playlist.extinf_total
-    if actual > hk_stats:
-        return [
-            f"{playlist.path.name} 有 {actual} 条 EXTINF，超过 stats.json 港澳台合计 {hk_stats}"
-            f"（多 {actual - hk_stats}）：违反子集关系"
-        ]
-    return []
+def hk_group_counts(playlist: Playlist) -> dict[str, int]:
+    """hk 列表按 ``#EXTGRP`` 分组名聚合的 EXTINF 条数（同名分段累加）。"""
+    counts: dict[str, int] = {}
+    for seg in playlist.segments:
+        counts[seg.name] = counts.get(seg.name, 0) + seg.extinf
+    return counts
+
+
+def check_hk_subset_by_group(
+    playlist: Playlist, stats: dict[str, int]
+) -> tuple[list[str], list[str]]:
+    """港澳台子集：**逐组**比较 ``hk_merged[g] <= stats[g]``。
+
+    为什么不能比合计：``hk_merged.m3u`` 是按每条频道的 ``is_hk_region()`` 逐条捞的，
+    而 stats 的「港澳台合计」按 ``HK_GROUP_KEYWORDS`` 分组名筛，两个口径不同源。
+    实测（2026-10-29）hk 81 条 vs 关键词合计 79：``📡 卫视频道``(3) 与
+    ``📺 有线电视``(3) 进了 hk 却不在关键词表里，合计口径必然偏小 —— 旧版拿合计比
+    会在完全正常的产物上报红。逐组比较才是真不变量（每组都是同一分组内的子集）。
+
+    返回 ``(失败原因列表, 提示信息列表)``；提示只打印，不计入失败。
+    """
+    name = playlist.path.name
+    counts = hk_group_counts(playlist)
+    failures: list[str] = []
+
+    for group in sorted(counts):
+        actual = counts[group]
+        expected = stats.get(group)
+        if expected is None:
+            failures.append(
+                f"{name} 分组 {group!r} 有 {actual} 条 EXTINF，"
+                f"但 stats.json 里没有同名分组：两份产物不同源，无法判定子集"
+            )
+        elif actual > expected:
+            failures.append(
+                f"{name} 分组 {group!r} 有 {actual} 条 EXTINF，"
+                f"超过 stats.json 同名分组的 {expected}（多 {actual - expected}）"
+                f"：违反子集关系"
+            )
+
+    total_actual = playlist.extinf_total
+    keyword_total = sum(n for group, n in stats.items() if is_hk_group(group))
+    diff = total_actual - keyword_total
+    notes = [
+        f"⚠️ 全量合计口径（提示，非失败条件）：{name} 共 {total_actual} 条，"
+        f"stats 港澳台（分组名关键词）合计 {keyword_total}，"
+        f"差 {diff:+d}（hk - stats）",
+        f"   hk 按 is_hk_region 逐条捞、stats 按 {len(HK_GROUP_KEYWORDS)} 个分组名关键词筛，"
+        f"口径不同源；真不变量是逐组 hk[g] <= stats[g]（本文件 {len(counts)} 组）",
+    ]
+    return failures, notes
 
 
 # ── 编排 ──────────────────────────────────────────────────────
@@ -400,6 +457,10 @@ def run_checks(stats_path: Path, all_path: Path, hk_path: Path) -> tuple[list[st
 
     total, hk_stats = summarize(stats)
     hk_groups = sorted(g for g in stats if is_hk_group(g))
+    hk_counts = hk_group_counts(hk_pl)
+    hk_ok_groups = sum(
+        1 for group, n in hk_counts.items() if group in stats and n <= stats[group]
+    )
 
     lines: list[str] = []
     lines.append(f"🧪 产物体检: {stats_path}")
@@ -425,12 +486,16 @@ def run_checks(stats_path: Path, all_path: Path, hk_path: Path) -> tuple[list[st
         f"文件内合计 {hk_pl.extinf_total}"
     )
     lines.append(
-        f"   与 stats 港澳台差: {hk_stats - hk_pl.declared_total}"
-        f"（is_hk_region 召回缺口，见 reports/；此处只断言 <= 0 方向）"
+        f"   逐组子集:       {hk_ok_groups}/{len(hk_counts)} 组满足 hk[g] <= stats[g]"
+        f"（失败明细见 stderr）"
     )
     lines.append("")
 
     failures: list[str] = []
+    hk_failures, hk_notes = check_hk_subset_by_group(hk_pl, stats)
+    lines.extend(hk_notes)
+    lines.append("")
+
     failures += check_stats(stats)
     failures += check_group_coverage(stats, all_pl.segments)
     failures += check_cap_consistency(all_pl.segments, cap=GROUP_CAP)
@@ -441,7 +506,7 @@ def run_checks(stats_path: Path, all_path: Path, hk_path: Path) -> tuple[list[st
     failures += check_declared_exact(hk_pl.segments, label="hk_merged.m3u")
     failures += check_delivery_size(hk_pl, hk_extinf, MIN_HK_CHANNELS)
     failures += check_orphan_extinf(hk_pl)
-    failures += check_hk_subset(hk_pl, hk_stats)
+    failures += hk_failures
     failures += check_header(hk_pl)
 
     return failures, "\n".join(lines)
