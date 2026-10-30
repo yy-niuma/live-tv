@@ -198,3 +198,38 @@ sources:
     url: "https://v3.mediacast.hk/webcast/bshdlive-pc/playlist.m3u8"
     enabled: true
     priority: 1
+
+  # === 香港直连（2026-10-31 调研新增）===
+  # 背景：RTHK 31/32 官方 https://www.rthk.hk/feeds/dtt/rthktv31_https.m3u8
+  # 是「假 200」—— master 本身 200，但里面的 akamaized.net 子流全部 403
+  # （地理封锁），所以产物里这两条一直是死链。下面的聚合源回源到
+  # fast.hidns.vip，不 geoblock。
+  #
+  # 口径注意：这几条源返回 `Content-Type: text/plain`（分片甚至标
+  # image/jpeg），旧口径只认 mpegurl 会把它们判死。已改为一律以
+  # body 是否以 `#EXTM3U` 开头为准，见 src/validator.py::_body_is_playlist。
+  #
+  # 验证方式（不是只看 HTTP 200）：连续 3 次采样 MEDIA-SEQUENCE
+  # 386921 → 386923 → 386925 持续推进 + 分片实测 200 / h264 1920x1080 / aac
+  # → 是活流，不是冻结静帧。同族的 viu / cdn6.cc.cd/jade 因为序号不推进
+  # （冻结流）或连接不稳（SSL EOF），已否决，不要加回来。
+  - name: "rthk31-hidns"
+    display_name: "RTHK 31"
+    url: "https://fast.hidns.vip/163189/rthk31"
+    enabled: true
+    priority: 1
+
+  - name: "rthk32-hidns"
+    display_name: "RTHK 32"
+    url: "https://fast.hidns.vip/163189/rthk32"
+    enabled: true
+    priority: 1
+
+  - name: "hoy78-hidns"
+    # HOY 78 资讯台 —— 现有产物只有 HOY TV(77) 与 HOY77台TV，没有 78 资讯台。
+    # 官方 hoytv-live-stream.hoy.tv/ch78 在本机 403（geo-block），此源可用。
+    # 序号 484194 → 484197 → 484199 推进，分片 1080p。
+    display_name: "HOY 78 资讯台"
+    url: "https://fast.hidns.vip/163189/hoy78"
+    enabled: true
+    priority: 1

@@ -97,6 +97,8 @@ GOLDEN_CASES = [
     _case("HOY TV 77 FHD", "📺 HOY TV", True),
     _case("HOY TV 76", "📺 HOY TV", True),
     _case("hoytv 78", "📺 HOY TV", True),
+    # 2026-10-31 新增源的产物名（display_name 原样落库，必须认得出是港区）
+    _case("HOY 78 资讯台", "📺 HOY TV", True),
     # ── 香港：Now TV ──────────────────────────────────────────
     _case("Now TV 新闻台", "📺 Now TV", True),
     _case("Now TV 332", "📺 Now TV", True),
