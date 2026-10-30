@@ -5,7 +5,9 @@
 - 代理域名 / 空 URL 剔除
 - 坏输入不抛未捕获异常
 - Content-Type 判定（同步纯逻辑，用假 response）
-- 已确认的缺陷：畸形 IPv6 字面量 URL 会“逃过” validate（用 xfail strict 登记）
+- 已修复的缺陷回归守卫：探测过程抛异常的频道（畸形 IPv6 字面量 URL、非字符串 url）
+  必须被剔除。2026-10-30 修复 `Validator.validate()` 后，这两个用例由 xfail(strict)
+  转成普通通过用例。
 
 设计约束：
 - 完全离线：所有“通过”用例都走 whitelist 短路；坏输入在发起 socket 之前就失败。
@@ -113,11 +115,12 @@ async def test_empty_list_returns_empty_list(validator):
 async def test_none_element_does_not_raise(validator):
     """None 元素走 asyncio.gather(return_exceptions=True)，异常不会向外抛。
 
-    注意：当前实现把“抛异常”当成“通过”，所以 None 会被保留在结果里（见文件末尾
-    test_exception_objects_must_not_count_as_valid 的 xfail 与报告说明）。
+    修复后（2026-10-30）：`validate()` 用 `valid is True` 严格判定，AttributeError
+    这类异常对象不再被当成「通过」，因此 None 会被剔除而不是保留。
     """
     result = await validator.validate([None])
     assert isinstance(result, list)
+    assert result == []
 
 
 @pytest.mark.asyncio
@@ -125,6 +128,7 @@ async def test_non_string_url_does_not_raise(validator):
     """url 是 int 时 urlparse 会抛 AttributeError，但不会逃出 validate()。"""
     result = await validator.validate([_RawUrl(123)])
     assert isinstance(result, list)
+    assert result == []
 
 
 # ──────────────────────────────────────────────────────────────
@@ -149,30 +153,69 @@ async def test_obvious_bad_urls_are_rejected(validator, url):
     assert result == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "已复现的缺陷：urlparse('http://[::1/list.m3u8') 抛 ValueError('Invalid IPv6 URL')，"
-        "该异常对象在 validate() 的 `if valid` 布尔判断里为真，于是畸形 IPv6 URL 会被当成"
-        "“验证通过”保留下来（Channel 正常构造路径下同样如此）。期望：应被剔除。"
-    ),
-)
 @pytest.mark.asyncio
 async def test_malformed_ipv6_literal_url_is_rejected(validator, channel_factory):
+    """畸形 IPv6 字面量 URL 必须被剔除（原 xfail(strict) 守卫，已于本轮修复）。
+
+    回归登记：urlparse('http://[::1/list.m3u8') 抛 ValueError('Invalid IPv6 URL')，
+    该异常逃出 `except (aiohttp.ClientError, asyncio.TimeoutError)` 一路冒到 gather；
+    修复前 `if valid` 把它当成真值保留，修复后 `valid is True` 将其剔除。
+    """
     ch = channel_factory("http://[::1/list.m3u8")
     assert await validator.validate([ch]) == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "同一根因（异常对象 truthy）：urlparse(123) 抛 AttributeError，gather 把异常当 True，"
-        "非字符串 url 被当成有效频道保留。期望：应被剔除。"
-    ),
-)
 @pytest.mark.asyncio
 async def test_exception_objects_must_not_count_as_valid(validator):
+    """异常对象一律不算有效（原 xfail(strict) 守卫，已于本轮修复）。
+
+    同一根因：urlparse(123) 抛 AttributeError，gather(return_exceptions=True) 把异常
+    对象放进结果列表；修复后判定口径是 `valid is True`，异常不是 True，故被剔除。
+    """
     assert await validator.validate([_RawUrl(123)]) == []
+
+
+@pytest.mark.asyncio
+async def test_probe_exception_from_validate_one_is_not_kept(
+    validator, channel_factory, monkeypatch
+):
+    """直接构造「gather 收到异常对象」的路径，不依赖 urlparse 的具体异常类型。"""
+    good = channel_factory(f"https://{WHITELIST_HOST}/ok/list.m3u8", name="好")
+    boom = channel_factory(f"https://{WHITELIST_HOST}/boom/list.m3u8", name="炸")
+
+    async def fake_validate_one(ch):
+        if ch.name == "炸":
+            raise RuntimeError("模拟探测时抛异常")
+        return True
+
+    monkeypatch.setattr(validator, "_validate_one", fake_validate_one)
+    assert await validator.validate([good, boom]) == [good]
+
+
+@pytest.mark.asyncio
+async def test_validate_requires_literal_true_not_merely_truthy(
+    validator, channel_factory, monkeypatch
+):
+    """契约固化：判定用 `is True`，真值但非 True 的返回值也不算有效。"""
+    ch = channel_factory(f"https://{WHITELIST_HOST}/x/list.m3u8")
+
+    async def fake_validate_one(_ch):
+        return ["非布尔真值"]  # 布尔上下文为真，但不是 True
+
+    monkeypatch.setattr(validator, "_validate_one", fake_validate_one)
+    assert await validator.validate([ch]) == []
+
+
+@pytest.mark.asyncio
+async def test_mixed_batch_keeps_only_genuinely_valid_channel(
+    validator, channel_factory
+):
+    """控制器基线场景：正常 / 抛异常 / 代理拒绝 三条混在一起，只应留 1 条。"""
+    good = channel_factory(f"https://{WHITELIST_HOST}/a/list.m3u8", name="正常")
+    boom = channel_factory("http://[::1/list.m3u8", name="抛异常")
+    blocked = channel_factory(f"https://{PROXY_HOST}/b/list.m3u8", name="代理")
+    kept = await validator.validate([good, boom, blocked])
+    assert [c.name for c in kept] == ["正常"]
 
 
 # ──────────────────────────────────────────────────────────────
