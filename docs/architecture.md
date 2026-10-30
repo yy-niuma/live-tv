@@ -173,19 +173,67 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 四道关：代理域名拒绝 → CDN 白名单（跳过协议层，播放列表仍读 body）→
 **熔断冻结期跳过** → 探测（`.m3u8`/`.m3u` 直接 GET，其余 HEAD、405 降级 GET）。
 
-探测是**两层判定**（2026-10-30 起）：
+探测是**三层判定**（2026-10-31 起）：
 
 1. **协议层**：`status == 200` 且 `Content-Type` 非 `text/html`；
-2. **内容层**：播放列表 body 不含占位片关键词（`nosignal` / `maintenance` /
-   `offline` …），也不指向点播平台（`youtube.com` / `youtu.be`）。
+2. **内容层**：body 必须以 `#EXTM3U` 开头，且不含占位片关键词（`nosignal` /
+   `maintenance` / `offline` …），也不指向点播平台（`youtube.com` / `youtu.be`）；
+3. **子流层**：master 播放列表（含 `#EXT-X-STREAM-INF`）再往下探一跳，
+   第一个子列表不可达就判死。
 
 内容层是必须的：只看 header 会把「200 + `x-mpegurl` 但 body 是 nosignal 占位片」
 和「200 + 指向 youtube 的 m3u」都判成有效。实测产物 66 条里 16 条属于这两类。
+
+> **子流层为什么必须（「假 200」）**（2026-10-31）。geo-block 不一定表现在
+> master 上。同一家 RTHK 的两套官方链路，实测结果就不一样：
+>
+> | 频道 | master | 子列表 | 分片 | 结论 |
+> |---|---|---|---|---|
+> | RTHK 31 `rthktv31-live.akamaized.net/…/RTHKTV31/master.m3u8` | 200 | 200 | **200 `video/MP2T` 762KB**，`MEDIA-SEQUENCE` 179335188→179335189 推进 | **能用，不需要替代源** |
+> | RTHK 32 `www.rthk.hk/feeds/dtt/rthktv32_https.m3u8` → `rthktv32-live.akamaized.net/…/RTHKTV32/stream4/streamPlaylist.m3u8` | 200 | **403 `text/html`** | — | 死链 |
+>
+> 只看 master 会把 RTHK 32 判活，后果是连锁的：同名合并时它和真能播的
+> `fast.hidns.vip/163189/rthk32` 都是 `True`，打平后按 CDN 优先级
+> （`rthk.hk` 属 `hk_patterns`）选了死链 —— **产物里 RTHK 32 一直挂着死链，
+> 新加的活源进不去**。
+>
+> `_first_child_uri()` 摘 `#EXT-X-STREAM-INF` 后第一条非注释行，`urljoin`
+> 解析（子列表可能是 root-relative 也可能像 RTHK 这样是 `stream4/xxx.m3u8`
+> 相对路径，`base + child` 会拼坏），只探第一个子流 —— 目的是识别「整棵树
+> 不可达」，不是给每个码率做体检。解析不出 URI / body 读不到都**保守放行**
+> （解析失败不是「流死了」的证据），子流 200 但 `Content-Type` 是 `text/html`
+> 判死（拦截页）。**注意播放列表常用 CRLF 行尾，摘 URI 必须 strip 掉 `\r`。**
+>
+> 子流层只覆盖到「子列表层就 403」这一类。还有更隐蔽的一类：**子列表 200、
+> 分片 403**（geo-block 压在最底层）。子流层抓不到它，靠 `recheck_strict` /
+> 抽帧这类更深的验证兜底 —— 判「真能播」最终要落到分片。
+
+> **合并必须用本轮实测，不能用快照**（2026-10-31）。`config/stream_health.json`
+> 是整轮**跑完才落盘**的，`Grouper` 只读它等于用上一轮的结论：上一轮「还活着」
+> 的死链会压过本轮新验到的活源。`src/main.py` 现在用本轮 `valid_channels`
+> **覆盖**快照里的同名 URL 再交给 `Grouper`。
+
+> **Content-Type 不可信，body 的 `#EXTM3U` 前缀才是播放列表签名**（2026-10-31）。
+> 实测 `fast.hidns.vip` / `cdn6.cc.cd` 这类聚合源把播放列表标成
+> `Content-Type: text/plain`，分片甚至标成 `image/jpeg`。旧口径只认 `mpegurl`，
+> 会把真能播的香港源（RTHK 31 / RTHK 32 / HOY 78）判死。现在：
+> `Content-Type` 只决定「要不要去读 body」（`_is_playlist_content_type` 收
+> `text/plain`），是不是播放列表一律看 `_body_is_playlist()`。反过来这也堵住了
+> 「HTML 错误页被标成 `text/plain`」混进来的口子。
+>
+> `_read_body()` 返回 `None`（读不到）与 `""`（真空 body）语义分开：读不到 →
+> 保守放行；空 body → 判不可用。合并成 `""` 会让 geo-block 的 403 被当成死链。
 
 > **为什么必须发浏览器 UA**：aiohttp 默认发 `Python/3.x aiohttp/x.y`，大量源站
 > 直接按 UA 拒。同一批 306 条港台死链做对照，默认 UA 存活 **0 条**，浏览器 UA
 > 存活 **14 条**（翡翠台 / TVB星河 / 無線新聞 / 台視 / 民視 / 公視 / 澳視衛星 /
 > TVBPearl / TVB娱乐新闻台 / 莲花卫视）—— 这 14 条全是真频道被 UA 误杀。
+
+> **HTTP 200 ≠ 活流**：SRS 系的 `hls_ctx` 是会话 token，同一个 token 反复取
+> 必然拿到同一份播放列表；`#EXT-X-MEDIA-SEQUENCE` 全程不动 = 冻结静帧。判活流
+> 必须**每次重新从 master 取新 token** 再比序号，且采样窗口跨 ≥2 个
+> `EXT-X-TARGETDURATION`（7s 窗口测 10s 分片周期会假报「不推进」）。见
+> `docs/hk-tw-source-research-2026-10-31.md`。
 
 > **为什么播放列表直接 GET 而不是 HEAD + GET**：HEAD 拿不到 body，判不出占位片，
 > 反正要补一次 GET。第一版实现两条都发，实测验证阶段 778s → 1687s（2.17 倍）；
