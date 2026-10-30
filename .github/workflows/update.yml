@@ -86,7 +86,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           # 缓存键来自 requirements*.txt 的哈希，锁定文件变了就换缓存
@@ -144,7 +144,7 @@ jobs:
           fetch-depth: 1
 
       - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
