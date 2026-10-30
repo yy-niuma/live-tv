@@ -41,11 +41,11 @@ live-tv/
 | `src/generator.py` | 198 | 8.0% | m3u 文本拼装、分类排序（`CATEGORY_ORDER` + `KNOWN_CATEGORIES`）、脏名过滤、100/组截断 |
 | `src/main.py` | 188 | 7.6% | CLI 参数、四阶段编排、`stats.json` 写出 |
 | `src/grouper.py` | 95 | 3.8% | 别名表加载、调 `normalize.*` 合并、调 `categorize()` 分组 |
-| `src/validator.py` | 92 | 3.7% | HEAD/GET 探测、代理域名拒绝、CDN 白名单放行 |
+| `src/validator.py` | 190 | 3.7% | HEAD/GET 探测、代理域名拒绝、CDN 白名单放行、**熔断冻结期跳过** |
 | `src/config.py` | 57 | 2.3% | 三个配置文件的最薄封装（懒加载 + 空列表即「未加载」） |
 | `src/lib/cache.py` | 49 | 2.0% | `SimpleCache`：`get/set/clear`，默认 TTL 86400s |
 | `src/lib/whitelist.py` | 48 | 1.9% | 港澳台 CDN 的 `re.Pattern` 列表 + `is_hk_cdn_whitelisted()` |
-| `src/lib/stream_health.py` | 101 | 4.1% | `{url: bool}` 实测可播快照的 load/save/merge，喂给合并排序 |
+| `src/lib/stream_health.py` | 434 | 4.1% | 实测快照 v2（`UrlHealth` 状态机）+ `Circuit` 指数退避熔断，喂给合并排序与验证跳过 |
 | `src/__init__.py` | 3 | 0.1% | 只有 `__version__ = "1.0.0"`（无 tag 对应，读不到） |
 | `src/group/__init__.py`、`src/lib/__init__.py` | 1 / 1 | — | 空 |
 
@@ -130,11 +130,46 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 
 已知问题：`self._semaphore` 在 `__init__` 里是 `None`，只有 `fetch_all()` 开头才赋值 ——
 现在 `_get_text()` 里做了懒初始化兜底，但直接调 `_fetch_source()` 仍需要它已就绪；
-库层用 `print` 而非 `logging`（审计报告 §1.5）；`tvg-country` / `tvg-id` 等属性仍被丢弃。
+库层用 `print` 而非 `logging`（审计报告 §1.5）。
 
-### 3.3 `validator.py`（92 行）
+`tvg-id` **已不再丢弃**（2026-10-30）：`Channel` 新增 `id` 字段，`_ATTR_RE`
+的候选从 `tvg-(?:name|logo|chnid)` 扩为 `tvg-(?:id|name|logo|chnid)`，`parse_m3u_text`
+把 `attrs["id"]` 传进 `Channel`，`generator.build_extinf()` 在 `tvg-name` 之前输出
+`tvg-id="..."`（空 id 不写该属性）。`grouper.py` 的 Channel→dict→Channel 往返也已补上 `id`。
+仍未保留的是 `tvg-country` / `tvg-language` 等其余属性。
 
-三道关：代理域名拒绝 → CDN 白名单直接通过 → HEAD 探测（405 时降级 GET），要求 `status == 200` 且 `Content-Type` 非 `text/html`。
+> 注意 EPG 绑定不是「补上 tvg-id 就通」：`epg.pw` 的 `<channel id>` 是**纯数字**
+> （如 `368550`），与 iptv-org 的 `CelestialMovies.hk@SD` 不是同一套命名体系。
+> 产物头部的 `x-tvg-url` 指向 epg.pw，所以这层绑定仍需一份 id 映射表（或换用
+> `iptv-org/epg` 的产物），见 `SUMMARY-可借鉴点.md`。
+
+**畸形 EXTINF 兜底**（2026-10-30）：`_EXTINF_RE` 的属性段是 `[^,]*`，遇到
+`#EXTINF:-1,tvg-id="…" …,真名`（属性写在时长逗号**之后**）时属性段只抓到空串，
+整串属性变成频道名。实测 `qist-tvbox` 源里有 6 条这样的行，产物 `hk_merged.m3u`
+里出现过 4 条以 `tvg-id="八大戏剧台"tvg-name=…` 开头的垃圾名。
+现在 `parse_m3u_text` 在取到 name 后，若其中仍残留 `tvg-…=` / `group-title=`，
+就把最后一个逗号之前的部分拨回属性区、真名取最后一段（`_INLINE_ATTR_RE`）。
+判据是「名字里还有 attr=」而不是「名字里有逗号」，所以
+`#EXTINF:-1 group-title="综合",新闻, 财经` 这种真带逗号的名字不会被截断。
+回归测试见 `tests/test_extinf_comma_attrs.py`（10 个离线用例）。
+
+> **抓取缓存的坑**：`SimpleCache` 的 TTL 是 86400s，24h 内重跑会直接命中
+> `src/.cache/channels_raw.json`。也就是说**改了抓取/解析代码后必须加 `--no-cache`**，
+> 否则跑出来的产物还是旧解析器的结果（名字、`id`、`group` 全是旧的）。
+
+### 3.3 `validator.py`（190 行）
+
+四道关：代理域名拒绝 → CDN 白名单直接通过 → **熔断冻结期跳过** → HEAD 探测（405 时降级 GET），
+要求 `status == 200` 且 `Content-Type` 非 `text/html`。
+
+熔断（2026-10-30 新增，`src/lib/stream_health.py` 的 `Circuit`）：
+URL 连续失败 3 次进入冻结期，退避 `min(24h, 2 ** bad_count * 60)`，成功即清零；
+冻结期内**一个包都不发**、直接判不可用。验证阶段占整条流水线 99% 的耗时，
+而实测快照里 59% 的 URL 是死链，这是唯一能显著缩短跑批的杠杆。
+
+> **白名单命中不更新熔断状态**：0 请求 = 无观测。记成功会让死链被永久清零、
+> 永远进不了熔断器（正是 `cloudfront.net` 那 7 条 403 的盲区）；记失败同样是造证据。
+> 代价是熔断覆盖率上限 = 真正发过请求的条目。
 
 已知问题（**最危险的一处**）：`validate()` 的 `return [ch for ch, valid in zip(channels, results) if valid]`（`:27`），而 `results` 来自 `gather(return_exceptions=True)` —— 异常对象恒为真，于是「验证过程抛异常」被解释成「验证通过」。实测 `http://[::1/list.m3u8`（`urlparse` 抛 `ValueError`）被保留；详见 §3.5b。另外并发 20 + 单条 10s 是整条流水线的时间黑洞（§2.6）。
 
@@ -146,7 +181,10 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 
 ### 3.5 `group/normalize.py`（337 行）
 
-- `convert_tc_to_sc()`：**词表级**繁简替换（约 100 组词，不是逐字转换）。
+- `convert_tc_to_sc()`：**两层**繁简替换 —— 先按长度倒序过词组表（约 106 组词），
+  再走 **70 字单字兜底表**（`str.translate`）。2026-10-30 加单字层之前是纯词表级，
+  实测 `華麗翡翠台` / `三立台灣台` / `澳视澳門` 完全不变（缺 `麗` `灣` `門`）。
+  仍是**域内收敛**不是全量繁简：生僻字会漏，通用解需 `opencc`（未引入，属新依赖）。
 - `strip_noise()`：清除画质/码率等噪声。
 - `normalize_channel_name()`：繁简 → 噪声清理 → 别名替换（带前后边界判断）。
 - `get_url_priority()`：1 = 港澳台 CDN 白名单域名，2 = 已知聚合站，3 = 其他。
@@ -165,21 +203,38 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 
 已知问题：`strip_noise()` 里 `re.compile(r'\s+').sub('', ...)` 把**所有内部空格删掉**（实测 `"TVB 翡翠台"` → `"TVB翡翠台"`），下游 `logo_map` 只能靠 `norm_nospace` 分支打补丁（§3.5）；`_SPECIAL_MAPPING` 每次调用重建；`original` 变量赋值后未使用。
 
-### 3.6 `lib/stream_health.py`（101 行）
+### 3.6 `lib/stream_health.py`（434 行）
 
-`{url: bool}` 实测可播快照的读写，**不联网、不判断，只搬运事实**：
+实测可播快照的读写 + 熔断状态机，**自己不联网**（只由 validator 喂观测）：
 
-| 函数 | 职责 |
+| 函数 / 类型 | 职责 |
 |---|---|
-| `load(path=None)` | 读快照。文件不存在 / JSON 坏 / 不是 dict → 一律返回 `{}`（= 全部未知），不抛异常 |
+| `load(path=None)` | 读快照，**返回 `{url: bool}` 旧视图**（向后兼容）。文件不存在 / JSON 坏 / 不是 dict → 一律返回 `{}`（= 全部未知），不抛异常 |
+| `load_states(path=None)` | 读快照，返回 `{url: UrlHealth}` 完整状态 |
 | `save(results, path)` | 把 `check_streams.py` 的 `results` 落成 `{url: ok}`；缺 `ok` 或空 `url` 的条目跳过（**不猜**） |
 | `merge_from_files(paths, out)` | 多份实测结果合并成一份，后写的覆盖先写的 |
+| `backoff_seconds(n)` | `min(24h, 2 ** n * 60)`，负数按 0 处理 |
+| `entry_is_frozen(entry, now)` | 判断单条此刻是否在冻结期；过期时**衰减一格**（`bad_count -= 1`），仍 ≥ 阈值就再冻一轮 |
+| `Circuit(path)` | 有状态门面：`entry()` / `record_success()` / `record_failure()` / `is_frozen()` / `snapshot()` / `save()` |
+
+`UrlHealth` 是 v2 的条目形状：`ok` / `bad_count` / `last_bad` / `last_good` / `frozen_until`。
+v1 的 `{url: bool}` 仍能读（`false` 只种 1 次历史失败，不拿旧快照当判决），
+所以旧快照不会让一批 URL 直接冻结。
+
+熔断常量：`FREEZE_THRESHOLD = 3`、`BASE_BACKOFF = 60s`、`MAX_BACKOFF = 24h`。
 
 `DEFAULT_PATH` = `config/stream_health.json`，**已在 `.gitignore`**（机器相关、时效性强）。
-消费者只有一处：`Grouper.__init__(health=...)` → `normalize.merge_duplicate_channels()`。
+消费者有两处：
+- `Grouper.__init__(health=...)` → `normalize.merge_duplicate_channels()`（排序用「实测能播」档位）
+- `Validator` → 冻结期内 0 请求跳过（`--health-file` 可覆盖路径）
 
 > 为什么单开一个模块而不是塞进 `normalize.py`：`normalize` 是纯函数层、不该碰文件系统；
 > 而且 `check_streams.py`（脚本层）也要写这个格式，两边共用一个模块比各写一份 dict 约定安全。
+
+> **已知缺口**：`src/.cache/channels_raw.json`（抓取缓存）里的 `Channel` 没有 `id` 键，
+> 所以 `--skip-fetch` / `--use-cache` 跑出的产物不会有 `tvg-id`，必须重抓。
+> 另外 `check_streams.py --health-out` 与 validator 熔断**共用同一文件、无文件锁**，
+> 并发跑会互相覆盖。
 
 ### 3.7 `group/categorizer.py`（684 行）
 
