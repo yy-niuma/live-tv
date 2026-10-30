@@ -44,7 +44,6 @@ LOGO_MAP = {
     "viutv6":        EPG_LOGO_CDN + "ViuTV6.png",
     "viu tv6":       EPG_LOGO_CDN + "ViuTV6.png",
     "viu":           EPG_LOGO_CDN + "ViuTV.png",
-    "viutv":         EPG_LOGO_CDN + "ViuTV.png",
     "viutv直播":     EPG_LOGO_CDN + "ViuTV.png",
     "viutv综合台":   EPG_LOGO_CDN + "ViuTV.png",
 

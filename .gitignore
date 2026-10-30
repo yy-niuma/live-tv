@@ -20,3 +20,5 @@ reports/
 
 # 实测可播快照（机器相关、时效性强，CI 自己跑一遍再喂给 src.main）
 config/stream_health.json
+# 逐源体检历史（check_sources.py --history 追加，本机累计，不入库）
+config/sources_history.jsonl

@@ -56,45 +56,6 @@ def _match(name_lower: str, group_lower: str, patterns: list) -> bool:
     return any(re.search(p, full, re.IGNORECASE) for p in patterns)
 
 
-def _excluded(name_lower: str, group_lower: str) -> bool:
-    """Patterns that disqualify a channel from specialized categories.
-    
-    Note: \\b word boundaries don't work at ASCII/CJK boundaries (CJK is \\w).
-    Patterns use simple substring matching instead.
-    """
-    # clang-format off
-    exclude = [
-        r"cctv", r"cetv",
-        r"aljazeera", r"al jazeera",
-        r"bbc", r"cnn",
-        r"fox news",
-        r"bloomberg", r"cnbc",
-        r"16tv", r"16 tv",
-        r"viutv", r"viu tv",
-        r"tvb", r"翡翠台", r"明珠台", r"j2",
-        r"rthk",
-        r"hoy", r"hoytv",
-        r"nowtv", r"now tv",
-        r"cable", r"有线", r"开电视",
-        r"凤凰", r"phoenix",
-        r"star tv", r"startv",
-        r"star movies", r"fox movies",
-        r"hbo", r"cinemax", r"amc", r"paramount", r"mgm",
-        r"channel v", r"channelv", r"mtv",
-        r"nhk", r"tbs",
-        r"disney", r"cartoon", r"nickelodeon",
-        r"disney channel",
-        r"espn", r"fox sports", r"beinsport", r"bein sport",
-        r"african", r"africable",
-        r"budapest", r"bogota", r"brasil", r"brazil",
-        r"ktv",
-        r"daystar",
-    ]
-    # clang-format on
-    full = name_lower + " " + group_lower
-    return any(re.search(p, full, re.IGNORECASE) for p in exclude)
-
-
 # ──────────────────────────────────────────────────────────────
 #  港澳台统一判定（categorize 与 is_hk_region 的**唯一**事实来源）
 #  ------------------------------------------------------------------
@@ -381,45 +342,6 @@ LOGO_REGION_PATTERNS = [
     ("Adelaide", "🇦🇺 澳大利亚"),
     ("Melbourne", "🇦🇺 澳大利亚"),
     ("Sydney", "🇦🇺 澳大利亚"),
-]
-
-CHANNEL_REGION_PATTERNS = [
-    # Astro 马来西亚
-    ("MOMOTV", "🇲🇾 马来西亚"),
-    ("ASTROAOD", "🇲🇾 马来西亚"),
-    # 澳大利亚
-    ("Bold Adelaide", "🇦🇺 澳大利亚"),
-    ("BoldAdelaide", "🇦🇺 澳大利亚"),
-    # 荷兰
-    ("AlmereTV", "🇳🇱 荷兰"),
-    ("TwenteTV", "🇳🇱 荷兰"),
-    # 宗教广播网
-    ("3ABN", "🌐 宗教广播"),
-    # 西班牙
-    ("Televalencia", "🇪🇸 西班牙"),
-    ("TeleValencia", "🇪🇸 西班牙"),
-    # 意大利
-    ("3Cat", "🇮🇹 意大利"),
-    # 俄罗斯
-    ("канал", "🇷🇺 俄罗斯"),
-    # 北欧
-    ("TV2", "🇳🇴 北欧"),
-    # 非洲
-    ("DSTV", "🌍 非洲"),
-    ("Mnet", "🌍 非洲"),
-    # 拉丁美洲 - 常见频道名模式
-    ("TVCorrientes", "🌎 拉丁美洲"),
-    ("TV Chile", "🌎 拉丁美洲"),
-    ("Canal 13", "🌎 拉丁美洲"),
-    ("Canal13", "🌎 拉丁美洲"),
-    ("TV Brasil", "🌎 拉丁美洲"),
-    ("TV Cultura", "🌎 拉丁美洲"),
-    ("TV UNAM", "🌎 拉丁美洲"),
-    ("VTV", "🌎 拉丁美洲"),
-    # 波兰
-    ("TVP", "🌍 欧洲"),
-    ("Polsat", "🌍 欧洲"),
-    ("TVN", "🌍 欧洲"),
 ]
 
 

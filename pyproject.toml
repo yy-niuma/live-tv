@@ -46,8 +46,12 @@ select = ["E", "F", "W", "I"]
 
 [tool.ruff.lint.per-file-ignores]
 # 记账规则：每条忽略都必须写清「几处 + 什么性质 + 审计报告哪一节 + 何时清掉」。
-# 总账：11 个文件 83 处忽略（E501 ×61、F401 ×9、I001 ×6、W293 ×3、F541 ×2、F601 ×1、F841 ×1）。
-# 其中 src/ 10 个文件 69 处，scripts/check_output.py 14 处（归 Lane C，见下）。
+# 总账（滚动登记：逐项数字会随各 lane 并发改动漂移，精确复核归 Controller）：
+#   本轮起点 11 个文件 83 处（E501 ×61、F401 ×9、I001 ×6、W293 ×3、F541 ×2、F601 ×1、F841 ×1），
+#   其中 src/ 10 个文件 69 处、scripts/check_output.py 14 处（归 Lane C，见下）。
+#   本轮变化：src/logo_map.py 的 F601 ×1 随重复键删除一并清掉（该文件再无豁免）
+#   → 10 个文件 82 处（src/ 9 个文件 68 处）；categorizer 的 W293 由 3 处降为 1 处
+#   （61 行那处随死代码 _excluded() 删除；全仓 W293 已复核，现仅 categorizer:50 一处）。
 # 清账主线是 reports/work-plan.md 3-4（src → src/livetv/ 包名归位 + 拆 categorizer.py），
 # 那一次 `ruff check --fix` 可以一次性消掉 I001/F401/F541/W293 共 20 处。
 
@@ -77,7 +81,8 @@ select = ["E", "F", "W", "I"]
     "E501", # 35 处：关键词/正则数据表单行 90~230 字符（最长 524 行 230 字符）—— audit-c §1.5 E501；audit-a §1.5/§4.2
     "F401", # 2 处：typing.Dict、typing.List 未使用 —— audit-c §1.5「9 个 F401」
     "I001", # 1 处：导入块未排序 —— audit-c §3.3
-    "W293", # 3 处：50/61/103 行空行含尾随空格 —— audit-c §1.5 W293（3 处全在这个文件）
+    "W293", # 1 处：50 行（_match docstring）空行含尾随空格 —— 原登记 3 处（50/61/103），
+            # 61 行随死代码 _excluded() 删除，103 行经 ruff --select W293 复核本就不是 W293
 ]
 
 # normalize.py —— 3 处，其中 F841 是"残留逻辑"，属真缺陷，优先清账。
@@ -95,12 +100,10 @@ select = ["E", "F", "W", "I"]
     "I001", # 1 处：导入块未排序 —— audit-c §3.3
 ]
 
-# logo_map.py —— F601 是真 bug：42 行与 47 行都定义了 "viutv"，后者静默覆盖前者。
-# 这是本轮唯一"忽略了一条能抓 bug 的规则"的地方，代价必须写明：在修掉之前，
-# 任何新增 logo 映射若重复键都不会被发现。清账：3-4 折行时一并处理，需人工确认哪个扩展名映射是对的。
-"src/logo_map.py" = [
-    "F601", # 1 处：47 行 "viutv" 键重复（覆盖 42 行）—— audit-c §1.5「真实缺陷 #1」；清账：需行为判断，src lane 修
-]
+# logo_map.py —— 已无任何豁免。原先的 F601 是 42 行与 47 行重复定义 "viutv"
+# （后者静默覆盖前者，两处表达式逐字节相同：EPG_LOGO_CDN + "ViuTV.png"）。
+# 重复键已删（保留 42 行那处），F601 在本文件重新生效 —— 今后任何新增 logo
+# 映射的重复键都会被 ruff 抓到（audit-c §1.5「真实缺陷 #1」清账完成）。
 
 # main.py —— 第 1 轮已改过（raise SystemExit(1)），本轮不动。
 "src/main.py" = [

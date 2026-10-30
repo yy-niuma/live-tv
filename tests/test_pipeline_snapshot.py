@@ -158,9 +158,13 @@ def test_pipeline_uses_normalized_names_and_dedupes(grouper, sample_channels, tm
     assert "翡翠台 HD" not in raw
     # 港台电视31 → RTHK 31
     assert "RTHK 31" in raw
-    # 两条翡翠台合并：hkdtmb（优先级 1）胜出，另一条 URL 不应作为独立条目出现
+    # 两条翡翠台合并：hkdtmb（优先级 1）胜出，另一条 URL 不再作为独立条目出现
     assert "http://hkdtmb.com/jade.m3u8" in raw
-    assert "http://example.invalid/jade_hd.m3u8" not in raw
+    # 但合并时算出的备链必须真的输出到产物（failover），且只能以 #EXTBACKUP: 注释行出现：
+    # 播放器不把它当频道，_parse / scripts 的 EXTINF 计数也不受影响（见下方独立性测试）
+    assert "#EXTBACKUP:http://example.invalid/jade_hd.m3u8" in raw
+    playable_urls = [line for line in raw.split("\n") if line.startswith("http")]
+    assert "http://example.invalid/jade_hd.m3u8" not in playable_urls
 
 
 def test_pipeline_drops_dirty_names_from_output(grouper, sample_channels, tmp_path):
@@ -195,3 +199,51 @@ def test_pipeline_empty_input_writes_header_only_files(grouper, tmp_path):
     all_parsed = _parse(tmp_path / "all_merged.m3u")
     assert all_parsed["first_line"].startswith("#EXTM3U")
     assert all_parsed["groups"] == []
+
+
+# ──────────────────────────────────────────────────────────────
+#  failover：备链进产物，但不改变任何既有计数口径
+# ──────────────────────────────────────────────────────────────
+def test_backup_urls_reach_the_playlist_without_changing_counts(grouper, sample_channels, tmp_path):
+    grouped = grouper.group(sample_channels)
+    Generator().generate_hk_and_all(grouped, str(tmp_path))
+
+    for name in ("all_merged.m3u", "hk_merged.m3u"):
+        parsed = _parse(tmp_path / name)
+        raw = parsed["raw"]
+        assert "#EXTBACKUP:" in raw, f"{name} 应当带出备选链路"
+        # 原来的不变量一条都不许变：声明数 == EXTINF 数 == 可播 URL 数
+        for group in parsed["groups"]:
+            assert group["declared"] == len(group["extinf"])
+            assert len(group["urls"]) == len(group["extinf"])
+        # 备链行一律以 # 开头（注释），绝不能被当成独立频道
+        assert not any(line.startswith("http") for line in raw.split("\n") if "#EXTBACKUP:" in line)
+
+
+def test_backup_lines_follow_their_primary_url(grouper, sample_channels, tmp_path):
+    """备链靠「紧跟主 URL 的下一行」绑定到频道，顺序不能乱。"""
+    Generator().generate_hk_and_all(grouper.group(sample_channels), str(tmp_path))
+    lines = (tmp_path / "all_merged.m3u").read_text(encoding="utf-8").split("\n")
+
+    idx = lines.index("http://hkdtmb.com/jade.m3u8")
+    assert lines[idx + 1] == "#EXTBACKUP:http://example.invalid/jade_hd.m3u8"
+
+
+# ──────────────────────────────────────────────────────────────
+#  确定性：跨输入顺序也不变（不是只在同进程重复跑时一致）
+# ──────────────────────────────────────────────────────────────
+def test_output_is_identical_when_input_order_is_reversed(make_grouper, sample_channels, tmp_path):
+    out1 = tmp_path / "forward"
+    out2 = tmp_path / "reversed"
+    Generator().generate_hk_and_all(make_grouper().group(list(sample_channels)), str(out1))
+    Generator().generate_hk_and_all(make_grouper().group(list(reversed(sample_channels))), str(out2))
+
+    for name in ("all_merged.m3u", "hk_merged.m3u"):
+        a = (out1 / name).read_text(encoding="utf-8")
+        b = (out2 / name).read_text(encoding="utf-8")
+        assert a == b, f"{name} 的组内顺序仍依赖输入顺序"
+
+
+def test_manifest_is_written_after_the_two_playlists(grouper, sample_channels, tmp_path):
+    Generator().generate_hk_and_all(grouper.group(sample_channels), str(tmp_path))
+    assert (tmp_path / "manifest.json").is_file()
