@@ -113,6 +113,10 @@ _REGION_EXTRA = [
     r"凤凰卫视", r"鳳凰衛視", r"凤凰香港台", r"phoenix",
     r"星空卫视", r"星空衛視",
     r"\bstar\s*tv\b", r"\bstartv\b",   # 加边界：DaystarTV/HmongStarTV 不是星空卫视
+    # 耀才财经台（BSTV）：香港券商自办财经频道。地域属港，但内容定位是
+    # 新闻财经 —— 归「📰 新闻财经」是对的，可那个分组在 all_merged 里
+    # 760 条被 GROUP_CAP=100 截断，不加这条会连 hk_merged 也进不去。
+    r"耀才", r"\bbstv\b",
 ]
 
 # 名字里带港台品牌词、但实为海外分台的（沿用旧版排除表的关键项）
