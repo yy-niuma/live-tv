@@ -1,5 +1,32 @@
 name: Update IPTV Playlists
 
+# ---------------------------------------------------------------------------
+# 触发面与「防环」设计（改动前只有 schedule / workflow_dispatch / pull_request）
+#
+# 本轮加了 push（main 分支）。为什么必须小心：本 workflow 的 update job 最后一步就是
+# `git push origin HEAD:main`，如果 push 又能触发本 workflow，理论上就是无限循环。
+# 两道锁，任何一道单独成立就足够：
+#
+#   锁 1（GitHub 平台层，事实而非设计）：GITHUB_TOKEN 发起的 push **不会**产生新的
+#        workflow run —— 这是 GitHub 的 anti-recursion 规则。update job 用的就是
+#        默认的 GITHUB_TOKEN（actions/checkout 的 persist-credentials），所以它自己
+#        的推送永远不会自触发。这条不能拿来当唯一保障，因为改天谁把 push 换成 PAT
+#        就会失效。
+#
+#   锁 2（本文件，显式 allowlist）：update job 的 `if` 是**正面列举**
+#        `schedule || workflow_dispatch`，而不是「排除 pull_request」。
+#        正面列举是 fail-closed：以后再加 release / repository_dispatch 等触发面，
+#        update 也不会顺手跟着跑生产。push 事件下拉起本 workflow 时，只有 check
+#        （只读：ruff / mypy / pytest）会跑，`.github/workflows/update.yml` 里
+#        没有任何一条写仓库的步骤会因为 push 事件被执行。
+#
+#   锁 2b：check job 额外挡掉 `github.actor == 'github-actions[bot]'`。
+#        万一推送改用 PAT（PAT 推送真的会产生 push 事件），bot 自己的产物提交
+#        也不该再跑一遍只读检查 —— 那是纯烧额度。
+#
+# 想验证防环没被改坏：tests/test_ci_workflow.py::test_update_job_never_runs_on_push
+# ---------------------------------------------------------------------------
+
 on:
   # 每天北京时间 8:00（UTC 0:00）
   schedule:
@@ -17,8 +44,12 @@ on:
         required: false
         default: "false"
         type: string
-  # PR 门禁：只跑 check job，update job 用 job 级 if 挡掉（见 docs/ci.md §1）
+  # PR 门禁：只跑 check job，update job 用 job 级 if 挡掉（见文件头 + docs/ci.md §1）
   pull_request:
+  # 主干 push：只跑只读的 check；生产 update 被 job 级 allowlist 挡住（见文件头锁 2）
+  push:
+    branches:
+      - main
 
 # 同一 ref 上的跑批串行化。cancel-in-progress 必须是 false：
 # update job 会 git push，半路取消会留下"提交了但 artifact 没上传"的半截运行，
@@ -37,6 +68,10 @@ jobs:
   # ---------------------------------------------------------------------------
   check:
     name: 静态检查 → 类型 → 测试
+    # 防环第二道锁（见文件头「锁 2b」）：**只在 push 事件上**挡掉 bot 自己推的产物提交。
+    # 不写成无条件的 `github.actor != 'github-actions[bot]'`：scheduled run 的 actor
+    # 由 GitHub 解析（可能是最后改 cron 的人），不该让这个取值影响每日检查跑不跑。
+    if: github.event_name != 'push' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # 只读：check 从不写仓库。权限只给必需的，不放全局（docs/ci.md §2）
@@ -75,7 +110,7 @@ jobs:
 
       - name: mypy（提示，不阻断）
         # continue-on-error 是刻意决定，不是偷懒：
-        # 现网 19 个类型错误全部要改 src/ 才能修，而本 lane 不许改 src/。
+        # 现网 18 个类型错误全部要改 src/ 才能修，而本 lane 不许改 src/。
         # 修完这些错误、把 src/ 纳入可改范围后，删掉下面这行即可变门禁（docs/ci.md §4）
         continue-on-error: true
         run: |
@@ -87,12 +122,14 @@ jobs:
         run: pytest tests/ -q
 
   # ---------------------------------------------------------------------------
-  # 生产：抓取 → 验证 → 生成 → 保险丝 → 推送
+  # 生产：抓取 → 验证 → 生成 → 保险丝 → 可播性门禁 → 推送
   # ---------------------------------------------------------------------------
   update:
-    name: 抓取 → 验证 → 生成 → 推送
-    # PR 上不跑：这一步会 git push origin HEAD:main
-    if: github.event_name != 'pull_request'
+    name: 抓取 → 验证 → 生成 → 门禁 → 推送
+    # 防环锁 2（见文件头）：**正面列举**允许跑生产的事件，而不是黑名单。
+    # PR 上不跑（这一步会 git push origin HEAD:main）；push 上不跑（会自触发）。
+    if: |
+      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     # 提交产物需要写权限；作用域只到本 job，不放宽全局默认
@@ -132,6 +169,246 @@ jobs:
         # 频道总数 < 3000 或港澳台为 0 时非零退出，让 CI 变红而不是静默提交空产物
         run: python scripts/check_output.py output/stats.json
 
+      # -----------------------------------------------------------------------
+      # 可播性门禁（本轮新增）
+      #
+      # 防的是什么：check_output.py 只做**结构**体检（条数 / 分组 / 头部一致），
+      # 一份「结构全对但每条都是死链」的产物能一路绿灯提交推送上主干，订阅者
+      # 第二天拿到的是 33 条全死的播放列表，而 CI 是绿的。
+      #
+      # 口径：直接跑 scripts/check_streams.py，它复用 src/validator.py 的判定
+      # （代理域名拒绝 / CDN 白名单 / HEAD 优先，失败退 GET），与流水线同源。
+      #
+      # 为什么**全跑不抽样**：hk_merged.m3u 实测只有 22~34 条（最近 60 天逐日
+      # `grep -c '^#EXTINF'` 的区间；该文件在 git 历史里共 183 个提交，最近 12 天
+      # 都是 30~33），jobs=20 一轮 3.8~13.3 秒（8 个历史产物实测，见下表）。
+      # 抽样在这个规模上没有收益，只会让「33 条里死了 20 条」这种退化在抽样时被漏掉。
+      #
+      # 阈值怎么定的（真跑出来的，不是拍脑袋；复现命令见 PR 描述）：
+      #   把 8 个历史日期的真实产物（2026-08-30 ~ 10-29）逐份跑一遍本脚本，
+      #   拿到不可用占比分布（每份 = 当天的 output/hk_merged.m3u）：
+      #     产物(日期)   条数  可用  不可用占比  单轮耗时
+      #     f75575a(10-28)  33   33     0.0%      3.8s
+      #     074c677(10-29)  33   32     3.0%      4.7s
+      #     a6c7d3e(10-10)  23   21     8.7%     12.0s
+      #     53a419a(10-20)  32   27    15.6%     12.1s
+      #     900ed56(10-17)  32   22    31.2%     12.0s
+      #     44c3837(09-19)  25   17    32.0%      7.0s
+      #     a237746(08-30)  33   21    36.4%     13.3s
+      #     eb315ef(09-05)  33   20    39.4%      9.6s  ← 最差
+      #   中位数 23.4%，最差 39.4%（eb315ef，33 条里 13 条不可用）。
+      #   阈值的上下界也钉在 tests/test_ci_workflow.py 里（> 0.394 且 <= 0.60），
+      #   改阈值会让那个测试跟着红 —— 免得下一个人凭手感把门禁调成永远绿。
+      #   取 MAX_BAD_RATIO = 0.50：
+      #     · 比实测最差日（39.4%）高 10.6 个百分点 ≈ 33 条里的 3.5 条，留给
+      #       「某条链路今天抽风」的抖动；单条抖动在 33 条规模上就等于 3 个百分点。
+      #     · 0.40 会在实测最差日当天变红（39.4% > 40% 只差 0.6pp），0.35 会红在
+      #       2/8 的历史日 —— 那样的门禁等于随机失败，最后一定被人关掉。
+      #     · 0.50 仍然抓得住历史退化：docs/source-discovery.md 记录过手动拼装
+      #       122/143/167 条产物时可用率只有 44.8%~48.4%（不可用 51.6%~55.2%），
+      #       以及「只做去重」那次 167 条里只剩 53 条可播（不可用 68.3%）——
+      #       这三种退化在 0.50 下**全部变红**。
+      #
+      # 抖动 vs 真退化：两轮独立探测，任一轮达标即通过。两轮都超阈值才判红 ——
+      # 单轮网络抖动（DNS 抽风、某台 restream 短暂 5xx）不该让当天的产物停更，
+      # 但系统性退化会让两轮同时红。这不是「永远绿」：判定依据是退出码
+      # （--max-bad-ratio），只要两轮都真的超过 50% 不可用，步骤必定失败。
+      #
+      # 成本：单轮 3.8~13.3 秒（33 条 / jobs=20 / timeout=10s，8 个历史产物实测），
+      # 最坏 2 轮 ≈ 13.3×2 + 5s 间隔 ≈ 32 秒，相对 update job 33.4 分钟的实测流水线
+      # 是 1.6% 量级；step timeout 5 分钟足够。
+      # -----------------------------------------------------------------------
+      - name: 可播性门禁（hk_merged 实测可播率）
+        id: playable
+        timeout-minutes: 5
+        env:
+          MAX_BAD_RATIO: "0.50"
+          WARN_BAD_RATIO: "0.35"
+        run: |
+          set -u
+          WORK="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/hk-streams"
+          mkdir -p "$WORK"
+          pass=0
+          for attempt in 1 2; do
+            echo "::group::可播性探测 第 ${attempt}/2 轮（阈值 不可用 <= ${MAX_BAD_RATIO}）"
+            if python scripts/check_streams.py output/hk_merged.m3u \
+                 --jobs 20 --timeout 10 --quiet \
+                 --json "$WORK/hk-$attempt.json" \
+                 --max-bad-ratio "$MAX_BAD_RATIO"; then
+              pass=1
+            fi
+            echo "::endgroup::"
+            if [ "$pass" -eq 1 ]; then break; fi
+            echo "::warning::第 ${attempt} 轮超出阈值，5 秒后重测（区分单轮抖动与真退化）"
+            sleep 5
+          done
+
+          python - "$WORK" "$WARN_BAD_RATIO" <<'PY'
+          import json, pathlib, sys
+
+          work, warn = pathlib.Path(sys.argv[1]), float(sys.argv[2])
+
+          # 白名单域名：src/validator.py 的 _validate_one 命中这些就**直接 return True，
+          # 一个请求都不发**。所以「可用率 100%」里可能有一批是定义上必然通过的，
+          # 不是测出来的 —— 必须在 CI 日志里显式报出来，否则门禁的绿灯会骗人。
+          wl_file = pathlib.Path("config/whitelist.txt")
+          whitelist = []
+          if wl_file.is_file():
+              whitelist = [
+                  line.strip() for line in
+                  wl_file.read_text(encoding="utf-8").splitlines()
+                  if line.strip() and not line.startswith("#")
+              ]
+
+          ratios = []
+          for f in sorted(work.glob("hk-*.json")):
+              d = json.loads(f.read_text(encoding="utf-8"))
+              ratio = d["bad"] / d["total"]
+              ratios.append(ratio)
+              print(f"{f.name}: 可用 {d['ok']}/{d['total']}  不可用 {ratio:.1%}")
+              for r in d["results"]:
+                  if not r["ok"]:
+                      print(f"    FAIL [{r['group']}] {r['name']} {r['url'][:72]}")
+
+              exempt = [r for r in d["results"]
+                        if any(w in r["url"].lower() for w in whitelist)]
+              if exempt:
+                  pct = len(exempt) / d["total"] * 100
+                  print(f"::warning::{f.name}: {len(exempt)}/{d['total']} 条"
+                        f"（{pct:.1f}%）命中 CDN 白名单，**未发任何请求**就判为可用。"
+                        f"这些条目的真实可播性本门禁看不到，"
+                        f"真实可用率可能低于上面的数字。")
+                  for r in exempt:
+                      print(f"    EXEMPT(未探测) [{r['group']}] {r['name']} {r['url'][:64]}")
+
+          # 只对「最好的一轮」告警：抖动轮已经红过一次，不必再报漂移
+          if ratios and min(ratios) > warn:
+              print(f"::warning::最好一轮的不可用占比仍有 {min(ratios):.1%}，"
+                    f"超过预警线 {warn:.0%}（硬阈值 50%），可播性在漂移")
+          PY
+
+          if [ "$pass" -ne 1 ]; then
+            echo "::error::两轮探测的不可用占比都超过 ${MAX_BAD_RATIO}，拒绝提交死链产物"
+            exit 1
+          fi
+
+      # -----------------------------------------------------------------------
+      # 白名单盲区补测（2026-10-30 全流程实测发现，本轮新增）
+      #
+      # 为什么需要单独一步：src/validator.py 的 `_validate_one()` 对
+      # config/whitelist.txt 命中的域名**直接 return True，一个请求都不发**。
+      # check_streams.py 复用的正是这个口径，所以上面那一步看到的「可用率」
+      # 里有一批是**定义上必然通过**的，不是测出来的。
+      #
+      # 实测证据（2026-10-30 本机全流程，hk_merged 81 条）：
+      #   门禁口径      81/81 可用 = 100.0%
+      #   真实探测      67/81 可用 =  82.7%   ← 虚高 17.3 个百分点
+      #   15 条命中白名单（cloudfront.net / githubusercontent.com），逐条真发请求：
+      #     · 1 条真可用（cloudfront application/x-mpegURL）
+      #     · 7 条 HTTP 403 + text/html（CloudFront 已封）
+      #     · 7 条 HTTP 200 但内容是指向 youtube.com 的伪直播 m3u8
+      #   也就是说：白名单恰好放过了这个产物里**全部 14 条死链**。
+      #
+      # 这一步绕过白名单，对这些条目真发请求，把补测出的死链计入总不可用占比，
+      # 用同一个 MAX_BAD_RATIO 判定。它不替换上一步（上一步仍是主判据，
+      # 且带两轮重试吸收抖动），而是把上一步看不见的那部分补齐。
+      #
+      # 判定口径（宁严不宽）：
+      #   · HTTP 2xx 且 Content-Type 属于 HLS/视频/octet-stream/空 → 活
+      #   · 内容里出现 youtube.com / youtu.be → 伪直播，算死（IPTV 播放器放不出来）
+      #   · 其余（403 / HTML / 其他类型）→ 死
+      # -----------------------------------------------------------------------
+      - name: 可播性门禁（白名单盲区补测）
+        id: playable_exempt
+        timeout-minutes: 5
+        env:
+          MAX_BAD_RATIO: "0.50"
+        run: |
+          set -u
+          WORK="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/hk-streams"
+          python - "$WORK" "$MAX_BAD_RATIO" <<'PY'
+          import asyncio, json, pathlib, sys
+
+          work = pathlib.Path(sys.argv[1])
+          max_bad = float(sys.argv[2])
+          files = sorted(work.glob("hk-*.json"))
+          if not files:
+              print("::error::找不到门禁的逐条结果，白名单补测无从下手")
+              raise SystemExit(1)
+
+          import aiohttp
+
+          data = json.loads(files[0].read_text(encoding="utf-8"))
+          wl_file = pathlib.Path("config/whitelist.txt")
+          whitelist = []
+          if wl_file.is_file():
+              whitelist = [
+                  ln.strip() for ln in
+                  wl_file.read_text(encoding="utf-8").splitlines()
+                  if ln.strip() and not ln.startswith("#")
+              ]
+
+          exempt = [r for r in data["results"]
+                    if any(w in r["url"].lower() for w in whitelist)]
+          if not exempt:
+              print("✅ 无白名单免探测条目，主门禁的可用率就是真实可用率")
+              raise SystemExit(0)
+
+          VALID_CT = ("video", "audio", "application/octet-stream",
+                      "application/x-mpegurl", "application/vnd.apple.mpegurl")
+
+          async def probe(session, rec):
+              try:
+                  async with session.get(
+                      rec["url"], allow_redirects=True,
+                      timeout=aiohttp.ClientTimeout(total=15),
+                  ) as r:
+                      body = (await r.content.read(400)).decode("utf-8", "replace")
+                      ct = (r.headers.get("Content-Type") or "").lower()
+                      status = r.status
+              except Exception as exc:
+                  return rec, False, f"{type(exc).__name__}: {exc}"
+              if not (200 <= status < 300):
+                  return rec, False, f"HTTP {status}"
+              if "youtube.com" in body or "youtu.be" in body:
+                  return rec, False, "内容指向 youtube（伪直播）"
+              if ct and not any(v in ct for v in VALID_CT):
+                  return rec, False, f"Content-Type 不可播: {ct}"
+              if "#EXTM3U" not in body and "m3u8" not in rec["url"].lower():
+                  return rec, False, "内容不是播放列表"
+              return rec, True, ""
+
+          async def main():
+              async with aiohttp.ClientSession() as s:
+                  return await asyncio.gather(*(probe(s, r) for r in exempt))
+
+          results = asyncio.run(main())
+          dead = [(r, why) for r, ok, why in results if not ok]
+
+          print(f"白名单免探测 {len(exempt)} 条 → 真实补测："
+                f"活 {len(exempt) - len(dead)} / 死 {len(dead)}")
+          for rec, why in dead:
+              print(f"    DEAD [{rec['group']}] {rec['name']} "
+                    f"{rec['url'][:64]} —— {why}")
+
+          # 主门禁的 bad 数 + 补测出的死链 = 真实不可用总数
+          base_total = data["total"]
+          base_bad = data["bad"]
+          true_bad = base_bad + len(dead)
+          ratio = true_bad / base_total
+          print(f"\n门禁口径: 不可用 {base_bad}/{base_total} = {base_bad / base_total:.1%}")
+          print(f"真实口径: 不可用 {true_bad}/{base_total} = {ratio:.1%}"
+                f"（补测补出 {len(dead)} 条）")
+          if ratio > max_bad:
+              print(f"::error::补齐白名单盲区后不可用占比 {ratio:.1%} "
+                    f"超过阈值 {max_bad:.1%}")
+              raise SystemExit(1)
+          if dead:
+              print(f"::warning::门禁绿灯但真实不可用占比 {ratio:.1%}，"
+                    f"其中 {len(dead)} 条是白名单免探测的死链（建议清 whitelist.txt）")
+          print(f"✅ 补齐盲区后不可用占比 {ratio:.1%} <= {max_bad:.1%}")
+          PY
+
       - name: 检查是否有更新
         id: changes
         run: |
@@ -152,6 +429,29 @@ jobs:
           git add output/
           COMMIT_MSG="Update IPTV $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           git commit -m "$COMMIT_MSG"
+
+          # ------------------------------------------------------------------
+          # 并发保护：先把远端 main 合进来，再 push。
+          #
+          # 为什么必须有：这个 job 从 checkout 到 push 之间要跑 ~20 分钟，
+          # 这段时间里 main 完全可能被推动（人工提交 / 上一轮迟到的推送 /
+          # workflow_dispatch 与 schedule 撞车）。此时直接 push 会被
+          # non-fast-forward 拒绝，结果是「今天的产物没上去，job 变红」——
+          # 对这个项目的用户来说就是当天没有新播放列表。
+          #
+          # 这不是假想：2026-10-30 本地全流程验证时真实复现过，报错
+          #   ! [rejected] HEAD -> main (non-fast-forward)
+          #
+          # `-X ours`：output/ 是生成物，冲突时**以本次运行为准**（本次最新、
+          # 且刚过了保险丝与可播性门禁）。不用 rebase —— rebase 会把本次提交
+          # 重放到别人的历史上，一旦冲突要人工 abort，脚本里更难写对。
+          # ------------------------------------------------------------------
+          git fetch origin main
+          if ! git merge --no-edit -X ours origin/main; then
+            echo "::error::合并远端 main 失败，放弃推送（产物已在本 run 的 artifact 里）"
+            exit 1
+          fi
+
           git push origin HEAD:main
           echo "✅ 已推送: $COMMIT_MSG"
 

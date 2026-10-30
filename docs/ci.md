@@ -294,3 +294,35 @@ ruff check src/ scripts/                  # 必须 exit 0
 4. **`continue-on-error` 只改结论，不改日志**，但它会让 step 显示为黄色通过；
    如果哪天有人把 `mypy` 的 `continue-on-error` 删了，`check` 会立刻变红 19 条 ——
    那是预期行为，不是新引入的 bug。
+5. **可播性门禁报的数字曾经是假的（2026-10-30 实测）。**
+   `src/validator.py::_validate_one` 对命中 `config/whitelist.txt` 的域名
+   **一个请求都不发，直接 `return True`**。而白名单里有 `cloudfront.net`、
+   `githubusercontent.com` 这种**通配域**。
+
+   对 `output/hk_merged.m3u` 的 81 条逐条真探（不走白名单捷径）实测：
+
+   | 口径 | 数值 |
+   |---|---|
+   | 命中白名单、一个请求都没发的 | 15 / 81 = 18.5% |
+   | 这 15 条真实探测结果 | 8 条 ok，**7 条 HTTP 403** |
+   | **真实可播率** | **74 / 81 = 91.4%** |
+   | 门禁当时报的数字 | 81/81 = **100%** |
+
+   那 7 条 403 全部来自同一个子域 `d2jc41c1shgcol.cloudfront.net` ——
+   被封的是**这个客户的子域**，不是 CloudFront 整个平台，但我们按域名后缀匹配，
+   等于给整个共享 CDN 平台开了后门。
+
+   **因此**：门禁里 `check_streams.py` 报出的「可播率」必须理解为
+   「**未经白名单盲区补测的**」数字。`update.yml` 里为此加了一个
+   「白名单盲区补测」步骤（`playable_exempt`），它绕过白名单真实发请求，
+   识别 HTTP 2xx / Content-Type / 内容是否指向 youtube.com 的伪直播，
+   并把补测出的死链计入同一个 `--max-bad-ratio` 阈值。
+
+   **换 EPG 源或改白名单时记得**：通配域（`cloudfront.net`、`githubusercontent.com`）
+   永远不要整域放行；白名单应当只影响「探测失败后算不算死」，不影响「要不要探」。
+
+6. **证书容错的收益被高估过（2026-10-30 实测）。**
+   为了判断「是否该放宽容错证书（`rejectUnauthorized=false`）」，
+   对 81 条做了严格 vs 宽松双跑：**严格 72/81、宽松 73/81，只差 1 条**
+   （`jnzq.ohoyee.com:9080`）。所以真正的死链是 **8 条 HTTP 403**，
+   根因是白名单而非证书。改验证逻辑时别把力气花在证书容错上。

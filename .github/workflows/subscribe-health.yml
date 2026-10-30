@@ -1,0 +1,130 @@
+name: Subscribe URL Health
+
+# ---------------------------------------------------------------------------
+# 为什么这是一个**独立 workflow**，而不是 update job 里的一步
+#
+# 它检查的是「已经推上 main 的产物，订阅者能不能从 raw.githubusercontent.com 拿到」。
+# 这个事实在 update job 里根本不存在：
+#   1. 提交之前，main 上还是昨天的产物 —— 测出来的是旧地址；
+#   2. push 之后 `git push` 在 Actions 里是**异步落地**的，raw 的 CDN 缓存还要刷几秒，
+#      立刻在同一个 job 里 HEAD 自己刚推的 commit，会稳定地看到 404/旧 ETag。
+# 所以它是一个「对已提交内容的回归」，天然属于 push 之后、且时间解耦的运行。
+#
+# 触发面：
+#   · schedule 01:00 UTC —— 主路径。update 每天 0:00 UTC 起跑，实测流水线 33.4 分钟，
+#     01:00 UTC 检查到的就是当天刚提交的产物（GITHUB_TOKEN 的 push 不产生 push 事件，
+#     见 update.yml 文件头「锁 1」，所以 schedule 是唯一可靠的自触发路径）。
+#   · push(main, paths=output/**) —— 人工/外部推送产物时立刻跟一次；
+#     PAT 推送会真的产生 push 事件，这里正好用得上。
+#   · workflow_dispatch —— 怀疑订阅地址出问题时手动敲。
+#
+# 为什么值得单独存在：update job 的保险丝只保证「文件在仓库里是对的」，
+# 不保证「raw 地址是 200 且非空」。曾经的真实故障形态是——产物提交成功、
+# CI 全绿、但订阅者拉下来是 404/空文件（分支名写错、GitHub 侧 LFS/大文件、
+# raw 域名被墙、文件名改过而 README 没改）。这类故障在 push 之后的当天就该红，
+# 而不是等用户来报。
+#
+# 冷却策略：cancel-in-progress = true。这个 workflow 纯只读、无副作用，
+# 短时间连推两次没必要排队跑两遍，跑最新一次即可（与 update.yml 的 false 相反，
+# 那里的运行会写仓库，半截取消会留下坏状态）。
+# ---------------------------------------------------------------------------
+
+on:
+  schedule:
+    # update 0:00 UTC 起跑（实测 33.4 分钟），留一小时余量后再验证
+    - cron: "0 1 * * *"
+  push:
+    branches:
+      - main
+    paths:
+      - "output/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reachability:
+    name: raw 订阅地址可达性（200 + 非空）
+    runs-on: ubuntu-latest
+    # 两个 URL、每个最多 3 次重试、每次 20 秒上限 → 理论最坏 ~2 分钟；
+    # 10 分钟是给 raw CDN 抽风留的余量，不是正常耗时。
+    timeout-minutes: 10
+    # 只读：这个 job 不发任何写请求
+    permissions:
+      contents: read
+
+    steps:
+      - name: 预检（curl 版本 / 目标地址）
+        run: |
+          curl --version | head -1
+          echo "仓库: ${{ github.repository }}"
+          echo "HEAD: https://raw.githubusercontent.com/${{ github.repository }}/main/output/all_merged.m3u"
+          echo "HEAD: https://raw.githubusercontent.com/${{ github.repository }}/main/output/hk_merged.m3u"
+
+      - name: HEAD 两个订阅地址
+        env:
+          RAW_BASE: https://raw.githubusercontent.com/${{ github.repository }}/main
+        run: |
+          set -u
+          fail=0
+
+          check_one() {
+            path="$1"
+            url="$RAW_BASE/$path"
+            code=000
+            length=""
+            lastmod=""
+
+            # 网络抖动不该让这个检查变成随机红灯：3 次重试，每次间隔 3 秒。
+            # 但「3 次都拿不到 200+非空」就是真故障，必须红 —— 不设「重试后一律放行」。
+            for attempt in 1 2 3; do
+              headers=$(curl -sS -I -L --max-time 20 "$url" 2>/dev/null || true)
+              code=$(printf '%s\n' "$headers" | tr -d '\r' \
+                     | awk '$1 ~ /^HTTP\// {c=$2} END {print (c == "" ? "000" : c)}')
+              length=$(printf '%s\n' "$headers" | tr -d '\r' \
+                     | awk 'tolower($1)=="content-length:" {sub(/^[^:]+:[ ]*/,""); v=$0} END {print v}')
+              lastmod=$(printf '%s\n' "$headers" | tr -d '\r' \
+                     | awk 'tolower($1)=="last-modified:" {sub(/^[^:]+:[ ]*/,""); v=$0} END {print v}')
+
+              # 少数 CDN 不实现 HEAD（405/501）：退化成只取 1 字节的 GET，
+              # 200/206 都算「能取到」，但 Content-Length 仍必须 > 0。
+              if [ "$code" = "405" ] || [ "$code" = "501" ]; then
+                echo "::warning::$path HEAD 返回 $code，退化为单字节 GET"
+                headers=$(curl -sS -L --max-time 20 -r 0-0 -D - -o /dev/null "$url" 2>/dev/null || true)
+                code=$(printf '%s\n' "$headers" | tr -d '\r' \
+                       | awk '$1 ~ /^HTTP\// {c=$2} END {print (c == "" ? "000" : c)}')
+                length=$(printf '%s\n' "$headers" | tr -d '\r' \
+                       | awk 'tolower($1)=="content-length:" {sub(/^[^:]+:[ ]*/,""); v=$0} END {print v}')
+                lastmod=$(printf '%s\n' "$headers" | tr -d '\r' \
+                       | awk 'tolower($1)=="last-modified:" {sub(/^[^:]+:[ ]*/,""); v=$0} END {print v}')
+                if [ "$code" = "206" ]; then code=200; fi
+              fi
+
+              if [ "$code" = "200" ] && [ -n "$length" ] && [ "$length" -gt 0 ] 2>/dev/null; then
+                echo "✅ $path  HTTP $code  Content-Length=$length  最后修改=${lastmod:-未知}  (第 $attempt 次)"
+                # 非空但小得可疑：不算失败（阈值要求只要 >0），但要留痕，
+                # 免得「200 + 1 字节」被当成健康产物默默通过。
+                if [ "$length" -lt 1024 ]; then
+                  echo "::warning::$path 只有 $length 字节，小得可疑（hk 实测 ~8KB / all 实测 ~250KB）"
+                fi
+                return 0
+              fi
+
+              echo "⏳ $path 第 $attempt 次：HTTP $code Content-Length=${length:-<缺失>}，3 秒后重试"
+              sleep 3
+            done
+
+            echo "::error::$path 三次重试后仍不可用：HTTP $code Content-Length=${length:-<缺失>} ($url)"
+            return 1
+          }
+
+          check_one "output/all_merged.m3u" || fail=1
+          check_one "output/hk_merged.m3u" || fail=1
+
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::订阅地址可达性回归失败：产物已提交，但订阅者拿不到"
+            exit 1
+          fi
+          echo "✅ 两个订阅地址均返回 200 且 Content-Length > 0"
