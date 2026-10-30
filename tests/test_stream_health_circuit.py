@@ -51,12 +51,20 @@ class _Resp:
         self._counter = counter
         self.status = status
         self.headers = {} if content_type is None else {"Content-Type": content_type}
+        self.content = _RespContent()
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, *exc):
         return False
+
+
+class _RespContent:
+    """响应体替身：空 body（不是播放列表占位片）。"""
+
+    async def read(self, limit=-1):
+        return b""
 
 
 class _Session:
@@ -70,6 +78,9 @@ class _Session:
         self._status = status
         self._ctype = content_type
         self._raise = raise_exc
+        # 去重集合放在 session 上：`_check_url` 每条 URL 新建一个 session，
+        # 所以这里是「这一次探测内」的范围，不会跨轮累积。
+        self._seen = set()
         counter.sessions += 1
 
     async def __aenter__(self):
@@ -79,13 +90,26 @@ class _Session:
         return False
 
     def head(self, url, **kwargs):
-        self._counter.requests += 1
+        self._count(url)
         if self._raise is not None:
             raise self._raise
         return _Resp(self._counter, self._status, self._ctype)
 
-    def get(self, url, **kwargs):  # HEAD 405 之后的回退路径
-        return self.head(url, **kwargs)
+    def get(self, url, **kwargs):  # HEAD 405 回退 / 播放列表补读 body
+        self._count(url)
+        if self._raise is not None:
+            raise self._raise
+        return _Resp(self._counter, self._status, self._ctype)
+
+    def _count(self, url):
+        """同一次探测内按 URL 去重：`requests` = 探测的不同链路数。
+
+        第一次请求就计数；同一 URL 的后续请求（HEAD 405 回退、补读 body）
+        不再计数 —— 它们是同一条链路。
+        """
+        if url not in self._seen:
+            self._seen.add(url)
+            self._counter.requests += 1
 
 
 def _install_session(monkeypatch, counter, **kwargs):
@@ -343,11 +367,15 @@ async def test_success_after_frozen_clears_state(
 async def test_whitelist_hit_does_not_touch_circuit_state(
     isolated_config, health_path, monkeypatch
 ):
-    """白名单命中：0 请求、判 True，**且熔断状态一个字都不改**。
+    """白名单命中：判 True，**且熔断状态一个字都不改**。
 
-    理由：一个包都没发 = 没有观测。记成功会让死掉的白名单链路永远清零、
-    永远进不了熔断器（81 条里 15 条 0 请求，其中 7 条实测 403 的那个盲区）；
+    理由：熔断器只认「真实探测结果」。白名单分支走的是内容层检查
+    （播放列表要读 body 判占位片/伪直播），但它**不记账**：
+    记成功会让死掉的白名单链路永远清零、永远进不了熔断器；
     记失败则是凭空造证据。所以白名单条目在熔断器眼里**不存在**。
+
+    请求次数：白名单里的播放列表 URL 现在要发 1 次 GET 读 body
+    （以前是 0 请求，导致 githubusercontent 上的 youtube 伪直播全被放过）。
     """
     wl_url = f"https://{WHITELIST_HOST}/live/1.m3u8"
     counter = _Counter()
@@ -359,8 +387,8 @@ async def test_whitelist_hit_does_not_touch_circuit_state(
     for _ in range(5):
         v = _validator(isolated_config, health_path)
         assert await v.validate([ch]) == [ch]
-    assert counter.requests == 0
-    assert counter.sessions == 0
+    # 每轮 1 次 GET（读 body），不是 0 —— 但都不进熔断
+    assert counter.requests == 5
     assert v.circuit.states.get(wl_url) is None
     assert not health_path.exists()  # dirty=False → 不落盘
 
@@ -370,7 +398,7 @@ async def test_whitelist_hit_does_not_touch_circuit_state(
                    health_path)
     v = _validator(isolated_config, health_path)
     assert await v.validate([ch]) == [ch]
-    assert counter.requests == 0
+    assert counter.requests == 6  # 只多了这一次 GET，熔断状态仍未被动过
     assert sh.load_states(health_path)[wl_url].bad_count == 3  # 没被清零
 
 
@@ -411,11 +439,11 @@ async def test_missing_health_file_does_not_break_validation(
     _install_session(monkeypatch, counter)
     v = _validator(isolated_config, missing)
 
-    # 白名单路径（0 请求）+ 未知路径（1 请求）混着跑，证明流程正常
+    # 白名单路径（1 请求：播放列表要读 body）+ 未知路径（1 请求）混着跑
     wl = Channel(name="白名单", url=f"https://{WHITELIST_HOST}/a.m3u8")
     plain = Channel(name="普通", url=DEAD)
     assert await v.validate([wl, plain]) == [wl, plain]
-    assert counter.requests == 1
+    assert counter.requests == 2
     assert missing.exists()  # 只有「真的探测过」才会创建
 
 
