@@ -3,7 +3,7 @@
 #EXTVLCOPT:live-cache=1000
 #EXTVLCOPT:ttl=5
 #PLAYLIST:HK & TW IPTV 2026-10-30
-# Total: 58 channels, 9 categories
+# Total: 54 channels, 9 categories
 
 #EXTGRP:📡 卫视频道 (2)
 #EXTINF:-1 tvg-id="StarTV.tr@SD" tvg-name="StarTV" tvg-logo="https://i.imgur.com/9O3DHRB.png" group-title="📡 卫视频道",StarTV
@@ -11,11 +11,11 @@ https://dogus.daioncdn.net/startv/startv_720p.m3u8?app=a20ac41e-bdc3-4aa1-934d-2
 #EXTINF:-1 tvg-name="凤凰卫视" tvg-logo="https://epg.112114.xyz/logo/凤凰卫视.png" group-title="📡 卫视频道",凤凰卫视
 http://php.jdshipin.com/TVOD/iptv.php?id=fhzw
 
-#EXTGRP:📺 TVB (8)
+#EXTGRP:📺 TVB (7)
 #EXTINF:-1 tvg-name="TVB Plus" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/TVBPlus.png" group-title="📺 TVB",TVB Plus
 http://php.jdshipin.com/TVOD/iptv.php?id=tvbp
-#EXTBACKUP:http://php.jdshipin.com/TVOD/iptv.php?id=j2
 #EXTBACKUP:http://r.jdshipin.com/Nr5jq
+#EXTBACKUP:http://php.jdshipin.com:8880/TVOD/iptv.php?id=tvbp
 #EXTINF:-1 tvg-name="TVB 娱乐新闻" tvg-logo="https://live.fanmingming.cn/tv/TVB娱乐新闻台.png" group-title="📺 TVB",TVB 娱乐新闻
 http://php.jdshipin.com/TVOD/iptv.php?id=tvbylxw
 #EXTINF:-1 tvg-name="TVB 明珠台" tvg-logo="https://epg.112114.xyz/logo/明珠台.png" group-title="📺 TVB",TVB 明珠台
@@ -31,8 +31,6 @@ http://php.jdshipin.com/TVOD/iptv.php?id=fct
 #EXTBACKUP:http://122.152.202.33/s/81a8a44f/index.m3u8?id=53
 #EXTINF:-1 tvg-name="TVBJ1" group-title="📺 TVB",TVBJ1
 http://php.jdshipin.com/TVOD/iptv.php?id=j1
-#EXTINF:-1 tvg-name="华丽翡翠台" tvg-logo="https://epg.112114.xyz/logo/翡翠台.png" group-title="📺 TVB",华丽翡翠台
-http://r.jdshipin.com/thuYX
 #EXTINF:-1 tvg-name="无线新闻" group-title="📺 TVB",无线新闻
 http://php.jdshipin.com/TVOD/iptv.php?id=wxxw
 #EXTBACKUP:http://php.jdshipin.com/TVOD/iptv.php?id=tvbxw
@@ -40,37 +38,39 @@ http://php.jdshipin.com/TVOD/iptv.php?id=wxxw
 
 #EXTGRP:📺 ViuTV (1)
 #EXTINF:-1 tvg-name="ViuTV" tvg-logo="https://epg.112114.xyz/logo/ViuTV.png" group-title="📺 ViuTV",ViuTV
-http://php.jdshipin.com/TVOD/iptv.php?id=viutv2
-#EXTBACKUP:http://php.jdshipin.com/TVOD/iptv.php?id=viutv
-#EXTBACKUP:http://r.jdshipin.com/vSJvl
+http://php.jdshipin.com/TVOD/iptv.php?id=viutv
+#EXTBACKUP:http://php.jdshipin.com/TVOD/iptv.php?id=viutv2
+#EXTBACKUP:http://r.jdshipin.com/TcKr2
 
 #EXTGRP:📺 RTHK (3)
-#EXTINF:-1 tvg-name="RTHK 31" tvg-logo="https://epg.112114.xyz/logo/RTHK%2031.png" group-title="📺 RTHK",RTHK 31
-https://www.rthk.hk/feeds/dtt/rthktv31_https.m3u8
-#EXTBACKUP:http://php.jdshipin.com:8880/TVOD/iptv.php?id=rthk31
-#EXTINF:-1 tvg-name="RTHK 32" tvg-logo="https://epg.112114.xyz/logo/RTHK%2032.png" group-title="📺 RTHK",RTHK 32
-https://www.rthk.hk/feeds/dtt/rthktv32_https.m3u8
-#EXTBACKUP:http://php.jdshipin.com:8880/TVOD/iptv.php?id=rthk32
+#EXTINF:-1 tvg-name="RTHK 31" tvg-logo="https://epg.112114.xyz/logo/港台電視31.png" group-title="📺 RTHK",RTHK 31
+http://php.jdshipin.com:8880/TVOD/iptv.php?id=rthk31
+#EXTBACKUP:https://fast.hidns.vip/163189/rthk31
+#EXTINF:-1 tvg-name="RTHK 32" tvg-logo="https://epg.112114.xyz/logo/港台電視32.png" group-title="📺 RTHK",RTHK 32
+http://php.jdshipin.com:8880/TVOD/iptv.php?id=rthk32
+#EXTBACKUP:https://fast.hidns.vip/163189/rthk32
 #EXTINF:-1 tvg-name="RTHK普通话台" group-title="📺 RTHK",RTHK普通话台
 https://rthkaudio6-lh.akamaihd.net/i/radiopth_1@355869/index_56_a-p.m3u8
 
-#EXTGRP:📺 HOY TV (2)
+#EXTGRP:📺 HOY TV (3)
 #EXTINF:-1 tvg-name="HOY TV" tvg-logo="https://epg.112114.xyz/logo/HOY TV.png" group-title="📺 HOY TV",HOY TV
 http://php.jdshipin.com/TVOD/iptv.php?id=hoytv
 #EXTBACKUP:http://r.jdshipin.com/sFw4S
 #EXTBACKUP:https://liveopen.siliconweb.com/openTvLive/liveopen/playlist.m3u8
 #EXTINF:-1 tvg-id="HOY77" tvg-name="HOY77台TV" tvg-logo="https://s2.loli.net/2024/01/28/p5IAWDwsmOMPXBq.png" group-title="📺 HOY TV",HOY77台TV
 http://php.jdshipin.com/TVOD/iptv.php?id=hoytv2
+#EXTINF:-1 tvg-name="HOY78资讯台" group-title="📺 HOY TV",HOY78资讯台
+https://fast.hidns.vip/163189/hoy78
 
 #EXTGRP:📺 有线电视 (2)
 #EXTINF:-1 tvg-name="有线电视新闻" tvg-logo="https://epg.112114.xyz/logo/有線新聞台.png" group-title="📺 有线电视",有线电视新闻
-http://cm61-10-2-143.hkcable.com.hk/live_freedirect/hd110_h.live/playlist.m3u8
-#EXTBACKUP:http://cm61-10-2-140.hkcable.com.hk/live_freedirect/freehd209_h.live/chunklist_w135209556.m3u8
-#EXTBACKUP:http://cm61-10-2-143.hkcable.com.hk/live_freedirect/freehd209_h.live/playlist.m3u8
+http://cm61-10-2-143.hkcable.com.hk/live_freedirect/freehd209_h.live/playlist.m3u8
+#EXTBACKUP:http://61.10.2.141/live_freedirect/freehd209_h.live/playlist.m3u
+#EXTBACKUP:http://61.10.2.140/live_freedirect/freehd209_h.live/playlist.m3u8
 #EXTINF:-1 tvg-name="有线电视财经信息台" tvg-logo="https://epg.112114.xyz/logo/有线电视.png" group-title="📺 有线电视",有线电视财经信息台
 https://epg.pw/stream/0fddc0600d3868b05ad741d46294410aebca0fdc4fada5028dc54e624b7b17ca.m3u8
 
-#EXTGRP:🇹🇼 台湾 (33)
+#EXTGRP:🇹🇼 台湾 (27)
 #EXTINF:-1 tvg-id="FTV.bo@SD" tvg-name="FTV" tvg-logo="https://i.imgur.com/YOr1Oac.png" group-title="🇹🇼 台湾",FTV
 https://master.tucableip.com/ftvhd/index.m3u8
 #EXTBACKUP:https://stream8.cinerama.uz/1018/playlist.m3u8
@@ -80,23 +80,19 @@ http://111.59.139.85:11888/tsfile/live/1222_1.m3u8?key=txiptv
 http://61.221.215.25:8800/hls/41/index.m3u8
 #EXTINF:-1 tvg-name="TVBS" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/TVBS.png" group-title="🇹🇼 台湾",TVBS
 http://31.43.191.125:8080/restream/restream/34915
-#EXTINF:-1 tvg-name="TVBS 亚洲台" tvg-logo="https://epg.112114.xyz/logo/TVBS.png" group-title="🇹🇼 台湾",TVBS 亚洲台
-http://38.64.72.148/hls/modn/list/4005/playlist.m3u8
-#EXTBACKUP:http://38.64.72.148:80/hls/modn/list/4005/playlist.m3u8
+#EXTINF:-1 tvg-name="TVBS 亚洲台" tvg-logo="https://raw.githubusercontent.com/fanmingming/live/main/tv/TVBS亚洲.png" group-title="🇹🇼 台湾",TVBS 亚洲台
+http://d2e1asnsl7br7b.cloudfront.net/7782e205e72f43aeb4a48ec97f66ebbe/index_5.m3u8?zshijd
+#EXTBACKUP:http://38.64.72.148/hls/modn/list/4005/playlist.m3u8
 #EXTBACKUP:http://38.64.72.148/hls/modn/list/4005/chunklist1.m3u8
 #EXTINF:-1 tvg-name="TVBS 新闻" tvg-logo="https://epg.112114.xyz/logo/TVBS%E6%96%B0%E8%81%9E.png" group-title="🇹🇼 台湾",TVBS 新闻
 http://61.221.215.25:8800/hls/9/index.m3u8
 #EXTBACKUP:http://31.43.191.125:8080/restream/restream/34818
-#EXTBACKUP:https://d2jc41c1shgcol.cloudfront.net/live/tvbsnewsqt/playlist.m3u8
 #EXTINF:-1 tvg-name="TW台视新闻" tvg-logo="https://epg.112114.xyz/logo/台视.png" group-title="🇹🇼 台湾",TW台视新闻
 http://38.64.72.148:80/hls/modn/list/4013/chunklist1.m3u8
 #EXTBACKUP:http://38.64.72.148:80/hls/modn/list/4013/chunklist0.m3u8
-#EXTINF:-1 tvg-name="三立新闻" tvg-logo="https://epg.112114.xyz/logo/三立%E6%96%B0%E8%81%9E.png" group-title="🇹🇼 台湾",三立新闻
-https://d2jc41c1shgcol.cloudfront.net/live/iNEWS/playlist.m3u8
 #EXTINF:-1 tvg-name="东森新闻" tvg-logo="https://epg.112114.xyz/logo/东森%E6%96%B0%E8%81%9E.png" group-title="🇹🇼 台湾",东森新闻
 http://free.cnlive.club/channel/n88aa83/index.m3u8?q=1760217407316
 #EXTBACKUP:http://free.cnlive.club/channel/n88aa83.m3u8?q=111.170.171.148
-#EXTBACKUP:https://d2jc41c1shgcol.cloudfront.net/live/EBCNews/playlist.m3u8
 #EXTINF:-1 tvg-name="东森洋片" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/东森洋片台.png" group-title="🇹🇼 台湾",东森洋片
 http://31.43.191.125:8080/restream/restream/34813
 #EXTBACKUP:http://31.43.191.125:8080/vip6821768502490/6c17bae55394/34904
@@ -122,28 +118,18 @@ http://31.43.191.125:8080/restream/restream/34898
 http://37.27.111.214:8080/live/7/hls.m3u8
 #EXTBACKUP:http://31.43.191.125:8080/restream/restream/34897
 #EXTINF:-1 tvg-name="中视新闻" tvg-logo="https://epg.112114.xyz/logo/中视%E6%96%B0%E8%81%9E.png" group-title="🇹🇼 台湾",中视新闻
-http://free.cnlive.club/channel/428f1dfa.m3u8?q=111.170.171.148
-#EXTBACKUP:https://d2jc41c1shgcol.cloudfront.net/live/ctvnewsqt/playlist.m3u8
-#EXTINF:-1 tvg-id="八大戏剧台" tvg-name="八大戏剧" tvg-logo="https://epg.112114.xyz/logo/八大戏剧台.png" group-title="🇹🇼 台湾",八大戏剧
-https://haoyunlai.serv00.net/Smartv-1.php?id=badadrama
-#EXTINF:-1 tvg-id="八大第一台" tvg-name="八大第一" tvg-logo="https://epg.112114.xyz/logo/八大第一台.png" group-title="🇹🇼 台湾",八大第一
-https://haoyunlai.serv00.net/Smartv-1.php?id=badafirst
-#EXTINF:-1 tvg-id="八大综合台" tvg-name="八大综合" tvg-logo="https://epg.112114.xyz/logo/八大综合台.png" group-title="🇹🇼 台湾",八大综合
-https://haoyunlai.serv00.net/Smartv-1.php?id=badazhonghe
+http://74.91.26.218:82/live/ctvnews.m3u8
+#EXTBACKUP:http://free.cnlive.club/channel/428f1dfa.m3u8?q=111.170.171.148
 #EXTINF:-1 tvg-name="公视" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/公视.png" group-title="🇹🇼 台湾",公视
 http://31.43.191.125:8080/restream/restream/34891
 #EXTINF:-1 tvg-name="华视" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/华视.png" group-title="🇹🇼 台湾",华视
 http://31.43.191.125:8080/restream/restream/34887
-#EXTINF:-1 tvg-name="华视新闻" tvg-logo="https://epg.112114.xyz/logo/华视%E6%96%B0%E8%81%9E.png" group-title="🇹🇼 台湾",华视新闻
-https://d2jc41c1shgcol.cloudfront.net/live/ctsnewsqt/playlist.m3u8
 #EXTINF:-1 tvg-name="台视" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/台视.png" group-title="🇹🇼 台湾",台视
 http://31.43.191.125:8080/restream/restream/34879
 #EXTINF:-1 tvg-id="台视新闻" tvg-name="台视新闻" tvg-logo="https://live.fanmingming.cn/tv/台视新闻.png" group-title="🇹🇼 台湾",台视新闻
 http://38.64.72.148/hls/modn/list/4013/chunklist1.m3u8
 #EXTBACKUP:http://38.64.72.148/hls/modn/list/4013/chunklist0.m3u8
 #EXTBACKUP:http://38.64.72.148/hls/modn/list/4013/playlist.m3u8
-#EXTINF:-1 tvg-name="大爱" tvg-logo="https://epg.112114.xyz/logo/大爱.png" group-title="🇹🇼 台湾",大爱
-https://epg.pw/stream/8dab0126668b960d4130c12b25e9278ffda43f5b66fa986287ed34cd97cbd721.m3u8
 #EXTINF:-1 tvg-id="寰宇新闻" tvg-name="寰宇新闻" tvg-logo="https://gitee.com/suxuang/TVlogo/raw/main/img/Global2.png" group-title="🇹🇼 台湾",寰宇新闻
 http://jnzq.ohoyee.com:9080/live/hy.m3u8
 #EXTINF:-1 tvg-name="易中天品三国" tvg-logo="https://ghfast.top/https://raw.githubusercontent.com/CCSH/IPTV/refs/heads/main/logo/易中天品三国.png" group-title="🇹🇼 台湾",易中天品三国
@@ -152,26 +138,32 @@ https://yg.ygbox.de5.net/huya.php?id=11602032
 http://183.239.108.37:1698/hls/133/index.m3u8
 #EXTINF:-1 tvg-name="民视新闻" tvg-logo="https://epg.112114.xyz/logo/民视.png" group-title="🇹🇼 台湾",民视新闻
 http://38.64.72.148:80/hls/modn/list/4012/chunklist0.m3u8
-#EXTBACKUP:http://38.64.72.148/hls/modn/list/4012/chunklist1.m3u8
 #EXTBACKUP:http://38.64.72.148/hls/modn/list/4012/chunklist0.m3u8
+#EXTBACKUP:http://38.64.72.148/hls/modn/list/4012/playlist.m3u8
 #EXTINF:-1 tvg-name="民视闽南频道" tvg-logo="https://epg.112114.xyz/logo/民视.png" group-title="🇹🇼 台湾",民视闽南频道
 http://37.27.111.214:8080/live/6/hls.m3u8
 #EXTINF:-1 tvg-name="纬来精采" group-title="🇹🇼 台湾",纬来精采
 http://61.221.215.25:8800/hls/48/index.m3u8
 
-#EXTGRP:🇲🇴 澳门 (5)
+#EXTGRP:🇲🇴 澳门 (7)
 #EXTINF:-1 tvg-id="澳亚卫视" tvg-name="澳视Macau96台" tvg-logo="https://s2.loli.net/2025/07/11/7HoTb9itWXImpU6.png" group-title="🇲🇴 澳门",澳视Macau96台
 http://php.jdshipin.com/TVOD/iptv.php?id=as
 #EXTINF:-1 tvg-name="澳视卫星" group-title="🇲🇴 澳门",澳视卫星
-http://php.jdshipin.com:8880/TVOD/iptv.php?id=as
-#EXTBACKUP:http://r.jdshipin.com/QFhCq
+http://r.jdshipin.com/QFhCq
+#EXTBACKUP:http://php.jdshipin.com:8880/TVOD/iptv.php?id=as
+#EXTBACKUP:http://cdn6.123.rr.kg/163189/as
 #EXTINF:-1 tvg-name="澳视澳门" tvg-logo="https://epg.112114.xyz/logo/澳门.png" group-title="🇲🇴 澳门",澳视澳门
-http://php.jdshipin.com:8880/TVOD/iptv.php?id=asam
-#EXTBACKUP:http://r.jdshipin.com/n2YZI
+http://r.jdshipin.com/n2YZI
+#EXTBACKUP:http://php.jdshipin.com:8880/TVOD/iptv.php?id=asam
+#EXTBACKUP:http://cdn6.123.rr.kg/163189/asam
+#EXTINF:-1 tvg-name="澳门体育" tvg-logo="https://epg.112114.xyz/logo/澳门.png" group-title="🇲🇴 澳门",澳门体育
+http://cdn6.123.rr.kg/163189/amty
+#EXTINF:-1 tvg-name="澳门综艺" tvg-logo="https://epg.112114.xyz/logo/澳门.png" group-title="🇲🇴 澳门",澳门综艺
+http://cdn6.123.rr.kg/163189/amzy
+#EXTINF:-1 tvg-name="澳门莲花" tvg-logo="https://epg.112114.xyz/logo/澳门.png" group-title="🇲🇴 澳门",澳门莲花
+http://cdn6.123.rr.kg/163189/amlh
 #EXTINF:-1 tvg-name="澳门资讯" tvg-logo="https://epg.112114.xyz/logo/澳门.png" group-title="🇲🇴 澳门",澳门资讯
 https://live5.tdm.com.mo/ch5/info_ch5.live/playlist.m3u8
-#EXTINF:-1 tvg-id="莲花卫视" tvg-name="莲花卫视" tvg-logo="https://s2.loli.net/2025/07/11/ykSm1jOh3ucezZd.png" group-title="🇲🇴 澳门",莲花卫视
-http://8.138.7.223/tv/lotustv.m3u8
 
 #EXTGRP:📰 新闻财经 (2)
 #EXTINF:-1 tvg-id="BSTV.in@SD" tvg-name="BSTV" tvg-logo="https://jiotvimages.cdn.jio.com/dare_images/images/BSTV.png" group-title="📰 新闻财经",BSTV
