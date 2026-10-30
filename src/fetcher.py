@@ -152,7 +152,14 @@ class Fetcher:
 
         for attempt in range(self.max_retries):
             try:
-                channels = await self._fetch_url(url, headers=headers)
+                text = await self._get_text(url, headers=headers)
+                channels = self.parse_text(text).channels
+                if not channels:
+                    # 单流直连：源 URL 本身就是**一个**可播的 HLS 播放列表
+                    # （#EXTM3U + #EXT-X-STREAM-INF，没有 #EXTINF），
+                    # parse_m3u_text 解析不出频道 —— 把源 URL 当成一个频道收下。
+                    # 官方直连源（TDM 澳门台、耀才财经台）就是这种形态。
+                    channels = self._as_single_stream(url, text, source)
                 if channels:
                     print(f"[Fetcher] {name}: got {len(channels)} channels")
                 else:
@@ -189,6 +196,43 @@ class Fetcher:
                     return await resp.text()
 
     # ── 纯函数解析层（无网络，方便单测）─────────────────────────────
+
+    def _as_single_stream(self, url: str, text: str, source: Dict) -> List[Channel]:
+        """把「源 URL 本身就是一个可播流」识别成一个频道。
+
+        官方直连源就是这个形态：URL 直接返回一个 HLS 播放列表
+        （``#EXTM3U`` + ``#EXT-X-STREAM-INF``），**没有** ``#EXTINF``，
+        所以 ``parse_m3u_text`` 解析出 0 条。
+
+        判据（四条都要满足，否则返回空列表 = 不硬造频道）：
+        1. body 以 ``#EXTM3U`` 开头（是播放列表，不是 HTML 错误页）；
+        2. 是 HLS 播放列表：出现 ``#EXT-X-STREAM-INF`` / ``#EXT-X-MEDIA``
+           或 ``#EXT-X-TARGETDURATION``；
+        3. 不是**频道清单**：频道清单有 ``tvg-name``（或每条 ``#EXTINF``
+           后跟一个频道名 + URL）。媒体播放列表里的 ``#EXTINF`` 是分片，
+           没有 ``tvg-name``。
+
+        频道名优先取源配置的 ``display_name``，其次取源 ``name``；
+        都没有就用 URL。``name`` 是内部标识（如 ``tdm-macau-official``），
+        直接当频道名会让产物里出现一堆英文 id，所以给了 ``display_name``。
+        """
+        if not text or not text.strip():
+            return []
+        stripped = text.lstrip("﻿ \t\r\n")
+        if not stripped.startswith("#EXTM3U"):
+            return []
+        hls_markers = ("#EXT-X-STREAM-INF", "#EXT-X-MEDIA", "#EXT-X-TARGETDURATION")
+        if not any(m in text for m in hls_markers):
+            return []
+        # 频道清单的特征：带 tvg-name 的 EXTINF。媒体播放列表的 EXTINF 是分片，没有。
+        if "tvg-name" in text:
+            return []
+        name = (
+            source.get("display_name")
+            or source.get("name")
+            or url
+        )
+        return [Channel(name=name, url=url, group=source.get("group", ""))]
 
     def parse_text(self, text: str) -> ParseResult:
         """按内容嗅探格式并解析。顺序见模块 docstring。"""
