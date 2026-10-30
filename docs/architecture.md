@@ -67,9 +67,12 @@ config/sources.yaml ──(Config.sources, 只取 enabled≠false)──► 25 �
         │
         │ ② 验证  Validator.validate()           src/validator.py:22
         │   · proxy.txt 命中的域名直接丢弃
-        │   · whitelist.txt 命中的域名直接放行（不探测）
-        │   · 其余发 HEAD（405 回退 GET），要求 200 且 Content-Type 不是 text/html
-        │   · Semaphore(20)、单条 timeout 10s
+        │   · whitelist.txt 命中的域名跳过协议层，但播放列表仍读 body 判内容
+        │   · 播放列表 URL（.m3u8/.m3u）单次 GET；其余发 HEAD（405 回退 GET）
+        │   · 两层判定：① 200 且 Content-Type 非 text/html
+        │              ② body 不含 nosignal 占位片、不指向 youtube 点播
+        │   · 浏览器 UA（aiohttp 默认 UA 被源站拒，实测误杀 14 条港台台）
+        │   · Semaphore(40)、单条 timeout 10s
         ▼
    Channel[]（有效，--skip-validation 时原样透传）
         │
@@ -123,6 +126,14 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
   五个属性（`tvg-country` 之类会被丢掉）。
 - `parse_markdown_table()` 解析 Free-TV 那种 `| # | Channel | [>](url) | <img src> | epg |` 表格，
   频道名取链接列左边那格，并剥掉尾部的 Ⓖ/Ⓢ/Ⓣ/Ⓨ 来源标记。
+- **单流直连源**（2026-10-30 新增）：官方直连源的 URL 本身就是一个可播的 HLS
+  播放列表（`#EXTM3U` + `#EXT-X-STREAM-INF`，**没有** `#EXTINF`），
+  `parse_m3u_text` 解析出 0 条、源形同虚设。`_as_single_stream()` 把它识别成
+  **1 个频道**，名字优先取源配置的 `display_name`（源 `name` 是内部标识，
+  直接当频道名会让产物出现英文 id）。判据三条：`#EXTM3U` 开头、
+  有 HLS 标记（`#EXT-X-STREAM-INF` / `#EXT-X-MEDIA` / `#EXT-X-TARGETDURATION`）、
+  **没有** `tvg-name`（带 `tvg-name` 的是 N 个频道的清单，不是单流）。
+  目前用于 `tdm-macau-official`、`bstv-hk-official`。
 - `_fetch_source()` 现在会**透传 `sources.yaml` 里的 `headers:`**（旧版读都没读，`freetv-fun` 配的
   User-Agent 等于白配），并在 0 条时打 WARNING（旧版静默）。
 - `fetch_all()` 用 `asyncio.gather(return_exceptions=True)`，单源失败只 `print`，不中断。
@@ -157,21 +168,45 @@ output/stats.json      ← 注意：这里是 ③ 的产物，不是 ④ 的
 > `src/.cache/channels_raw.json`。也就是说**改了抓取/解析代码后必须加 `--no-cache`**，
 > 否则跑出来的产物还是旧解析器的结果（名字、`id`、`group` 全是旧的）。
 
-### 3.3 `validator.py`（190 行）
+### 3.3 `validator.py`
 
-四道关：代理域名拒绝 → CDN 白名单直接通过 → **熔断冻结期跳过** → HEAD 探测（405 时降级 GET），
-要求 `status == 200` 且 `Content-Type` 非 `text/html`。
+四道关：代理域名拒绝 → CDN 白名单（跳过协议层，播放列表仍读 body）→
+**熔断冻结期跳过** → 探测（`.m3u8`/`.m3u` 直接 GET，其余 HEAD、405 降级 GET）。
+
+探测是**两层判定**（2026-10-30 起）：
+
+1. **协议层**：`status == 200` 且 `Content-Type` 非 `text/html`；
+2. **内容层**：播放列表 body 不含占位片关键词（`nosignal` / `maintenance` /
+   `offline` …），也不指向点播平台（`youtube.com` / `youtu.be`）。
+
+内容层是必须的：只看 header 会把「200 + `x-mpegurl` 但 body 是 nosignal 占位片」
+和「200 + 指向 youtube 的 m3u」都判成有效。实测产物 66 条里 16 条属于这两类。
+
+> **为什么必须发浏览器 UA**：aiohttp 默认发 `Python/3.x aiohttp/x.y`，大量源站
+> 直接按 UA 拒。同一批 306 条港台死链做对照，默认 UA 存活 **0 条**，浏览器 UA
+> 存活 **14 条**（翡翠台 / TVB星河 / 無線新聞 / 台視 / 民視 / 公視 / 澳視衛星 /
+> TVBPearl / TVB娱乐新闻台 / 莲花卫视）—— 这 14 条全是真频道被 UA 误杀。
+
+> **为什么播放列表直接 GET 而不是 HEAD + GET**：HEAD 拿不到 body，判不出占位片，
+> 反正要补一次 GET。第一版实现两条都发，实测验证阶段 778s → 1687s（2.17 倍）；
+> 改成播放列表只发一次 GET 后回到 ~900s。
 
 熔断（2026-10-30 新增，`src/lib/stream_health.py` 的 `Circuit`）：
 URL 连续失败 3 次进入冻结期，退避 `min(24h, 2 ** bad_count * 60)`，成功即清零；
 冻结期内**一个包都不发**、直接判不可用。验证阶段占整条流水线 99% 的耗时，
 而实测快照里 59% 的 URL 是死链，这是唯一能显著缩短跑批的杠杆。
 
-> **白名单命中不更新熔断状态**：0 请求 = 无观测。记成功会让死链被永久清零、
-> 永远进不了熔断器（正是 `cloudfront.net` 那 7 条 403 的盲区）；记失败同样是造证据。
-> 代价是熔断覆盖率上限 = 真正发过请求的条目。
+> **白名单命中不更新熔断状态**：熔断器只认真实探测结果。记成功会让死链被永久清零、
+> 永远进不了熔断器；记失败同样是造证据。代价是熔断覆盖率上限 = 发过请求的条目。
 
-已知问题（**最危险的一处**）：`validate()` 的 `return [ch for ch, valid in zip(channels, results) if valid]`（`:27`），而 `results` 来自 `gather(return_exceptions=True)` —— 异常对象恒为真，于是「验证过程抛异常」被解释成「验证通过」。实测 `http://[::1/list.m3u8`（`urlparse` 抛 `ValueError`）被保留；详见 §3.5b。另外并发 20 + 单条 10s 是整条流水线的时间黑洞（§2.6）。
+> **白名单不再「0 请求放行」**：`raw.githubusercontent.com` 也在白名单里，而
+> ChiSheng9/iptv 这类仓库的 m3u **下一跳指向 youtube.com**。命中即放行意味着
+> 永不读 body，「有码流没节目」的伪直播长期占据产物（CI 白名单盲区门禁实测
+> 5/64 命中：4 条 youtube 伪直播 + 1 条 403）。现在白名单里的播放列表 URL 仍读
+> body 做内容层检查。**刻意保留的不对称**：非播放列表 URL 仍 0 请求放行；
+> 读 body 失败（geo-block 403、超时）**保守放行** —— 「读不到」不能当成「假」的证据。
+
+已知问题（**最危险的一处**）：`validate()` 的 `return [ch for ch, valid in zip(channels, results) if valid]`（`:27`），而 `results` 来自 `gather(return_exceptions=True)` —— 异常对象恒为真，于是「验证过程抛异常」被解释成「验证通过」。实测 `http://[::1/list.m3u8`（`urlparse` 抛 `ValueError`）被保留；详见 §3.5b。并发与单条 10s 超时仍是整条流水线的时间黑洞（§2.6）。
 
 ### 3.4 `grouper.py`（95 行）
 
@@ -374,7 +409,7 @@ group.normalize ──► lib.whitelist   （函数内 import，带 try/except I
 | `config/sources.yaml` | 177 | 27 个数据源 / 25 启用（`name` / `url` / `enabled` / `priority` / 可选 `headers`） | `Config.sources` |
 | `config/alias.txt` | 213 | 频道别名映射（154 条映射），支持 `->` 与 `=` 两种分隔符，`#` 开头为注释 | `Grouper._load_aliases` |
 | `config/groups.yaml` | 79 | 分组相关配置 | **当前无代码读取**（`grep -rn "groups.yaml" src` → 无命中） |
-| `config/whitelist.txt` | 9 | 验证器直接放行的 CDN 域名 | `Validator._is_whitelisted_cdn` |
+| `config/whitelist.txt` | 9 | 白名单域名：跳过协议层校验，播放列表仍读 body 判内容 | `Validator._is_whitelisted_cdn` → `_check_whitelisted` |
 | `config/proxy.txt` | 9 | 验证器直接丢弃的代理域名 | `Validator._is_proxy_domain` |
 
 这 376 行是**事实上的业务规则**，但没有任何 schema 校验：写错一个分组名、多打一个空格，都不会报错，只会让产物悄悄少一批频道。
