@@ -1,23 +1,23 @@
 {
-  "generated_at": "2026-10-30T20:14:28+00:00",
-  "tool_version": "1.0.0+git7641021",
+  "generated_at": "2026-10-31T05:16:45+00:00",
+  "tool_version": "1.0.0+gitbeaf9ce",
   "groups_file": "all_merged.m3u",
   "files": {
     "all_merged.m3u": {
-      "sha256": "9e7a2ccffc5f1c032b68ae2130fea4fb5705d2c2d6e8df753e14d7260dcee038",
-      "bytes": 349872,
+      "sha256": "3eb3f4c0166f37ce5aa0f2985e7918950dfb8834b5708ffa768d8fe1e43b1837",
+      "bytes": 351342,
       "channels": 1358,
       "groups": 51
     },
     "hk_merged.m3u": {
-      "sha256": "7d44a61ff2e7ef2cb9fdfafcf5102e81795916f430535a7001c295f5643fcc43",
-      "bytes": 13497,
-      "channels": 54,
+      "sha256": "9aa8e18b5ae06d22c740be93907ebfb812d6cacfe9cbc1fb15cd526f17b3c36f",
+      "bytes": 13912,
+      "channels": 56,
       "groups": 9
     }
   },
   "groups": {
-    "📺 央视频道": 54,
+    "📺 央视频道": 50,
     "📺 北京": 4,
     "📺 上海": 11,
     "📺 广东": 10,
@@ -57,11 +57,11 @@
     "📺 RTHK": 3,
     "📺 HOY TV": 3,
     "📺 有线电视": 2,
-    "🇹🇼 台湾": 27,
-    "🇲🇴 澳门": 7,
+    "🇹🇼 台湾": 28,
+    "🇲🇴 澳门": 8,
     "🎬 电影频道": 100,
     "🎵 音乐频道": 100,
-    "🌐 国际频道": 92,
+    "🌐 国际频道": 94,
     "🌐 国际": 100,
     "📰 新闻财经": 100,
     "🧸 儿童频道": 100,
