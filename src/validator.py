@@ -4,6 +4,7 @@ import re
 import time
 from collections import deque
 from contextlib import asynccontextmanager
+from math import isqrt
 from typing import Deque, Dict, List, Set
 from urllib.parse import urljoin, urlparse, urlsplit
 
@@ -244,6 +245,8 @@ class Validator:
         self._semaphore: asyncio.Semaphore = None
         # 按 host 的限流名额（见 `PER_HOST_CONCURRENCY` / `_host_sem`）
         self._host_sems: dict[str, asyncio.Semaphore] = {}
+        # 每个 host 的 URL 数（validate() 开始时填充，供 _host_sem 算自适应上限）
+        self._host_counts: dict[str, int] = {}
         # 惰性：构造 Validator 不等于读文件；health_file=None 走 DEFAULT_PATH
         self.health_file = health_file
         self._circuit: stream_health.Circuit | None = None
@@ -317,6 +320,17 @@ class Validator:
         self._in_batch = True
         self._session = None
         total = len(channels)
+        # 每个 host 有多少条 URL —— `_host_sem` 用它算自适应并发上限。
+        # 必须在探测开始前算完：固定上限会让「一个 host 几千条」把整批卡死。
+        counts: Dict[str, int] = {}
+        for ch in channels:
+            try:
+                h = urlparse(getattr(ch, "url", "") or "").hostname or ""
+            except Exception:
+                h = ""
+            counts[h] = counts.get(h, 0) + 1
+        self._host_counts = counts
+        self._host_sems = {}
         done = {"n": 0, "ok": 0}
         timings: List[tuple] = []
         t_start = time.monotonic()
@@ -400,14 +414,19 @@ class Validator:
         timings.sort(key=lambda x: -x[0])
         top = timings[:10]
         top_sum = sum(t for t, _ in top)
+        serial_total = sum(t for t, _ in timings)
         print(
             f"  [验证耗时] 总计 {elapsed:.0f}s / {total} 条 "
-            f"= {elapsed / max(1, total):.2f}s/条（串行意义）",
+            f"= {elapsed / max(1, total):.2f}s/条（墙钟均摊）",
             flush=True,
         )
+        # 注意口径：这些 URL 是**并发**跑的，所以「top10 之和」与墙钟不能直接比
+        # （并发下 sum 会远大于墙钟，得出 >100% 的假百分比）。
+        # 正确比法是拿它跟**串行总耗时**比 —— 那才是「占比」的含义。
         print(
             f"  [验证耗时] 最慢 10 条合计 {top_sum:.0f}s "
-            f"（占墙钟 {top_sum / max(1e-9, elapsed) * 100:.0f}%）",
+            f"（占串行总耗时 {top_sum / max(1e-9, serial_total) * 100:.0f}% / "
+            f"串行总计 {serial_total:.0f}s）",
             flush=True,
         )
         for dt, url in top:
@@ -549,11 +568,29 @@ class Validator:
             return True                 # 重试用尽：保守放行
 
     def _host_sem(self, url: str) -> asyncio.Semaphore:
-        """按 host 取一个限流 semaphore（上限 `PER_HOST_CONCURRENCY`）。
+        """按 host 取一个限流 semaphore（上限自适应，见下）。
 
-        全局并发只该限制「同时有多少个请求在飞」，不该让同一个源站被
-        同时怼几十个连接 —— 那会被限流/拒绝，表现为高并发下掉条。
-        见 `PER_HOST_CONCURRENCY` 的实测表。
+        **固定上限是错的**（2026-11-01 CI 实测撞出来的）
+        -------------------------------------------------
+        最初把上限固定成 4，结果 CI dispatch 的验证阶段从 18 分钟涨到 27+ 分钟。
+        实测出来的原因：最慢的 URL 全是播放列表（`.m3u8` / `.ctv`，每条 7~14.5s，
+        因为要额外探一次子流），而 `stream1.freetv.fun` 这一个 host 就占了
+        **1,199 条**这样的 URL。固定 4 个名额意味着：
+
+            1,199 条 × ~12s ÷ 4 = 约 60 分钟    ← 与 CI 观测完全吻合
+
+        也就是说**一个热 host 就能把整个验证阶段卡死**，
+        不管全局并发放到多大 —— 全局名额空着，等一个 host 排队。
+
+        自适应上限
+        ----------
+        `cap = max(PER_HOST_CONCURRENCY, isqrt(该 host 的 URL 数))`
+
+        - 小 host（1~10 条）→ 走地板值 4，保持对源站克制；
+        - 中等 host（几百条）→ sqrt 给出十几~二十，按体量放宽；
+        - 巨型 host（1,199 条）→ 34，它本来就是能承载大流量的 CDN。
+
+        这样「大 host 排队」和「小 host 被怼」两个极端都不会出现。
         """
         try:
             host = urlparse(url).hostname or ""
@@ -561,7 +598,9 @@ class Validator:
             host = ""
         sem = self._host_sems.get(host)
         if sem is None:
-            sem = asyncio.Semaphore(PER_HOST_CONCURRENCY)
+            n = self._host_counts.get(host, 1)
+            cap = max(PER_HOST_CONCURRENCY, isqrt(max(1, n)))
+            sem = asyncio.Semaphore(cap)
             self._host_sems[host] = sem
         return sem
 

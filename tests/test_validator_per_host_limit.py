@@ -246,13 +246,42 @@ def test_no_deadlock_when_host_quota_exhausted(monkeypatch):
 
 # ── 漂移守卫 ──────────────────────────────────────────────────────────
 def test_per_host_limit_is_sane():
-    """漂移守卫：上限必须 > 1 且不太大。
+    """漂移守卫：地板值必须 > 1 且不太大。
 
     设成 1 → 热 host 退化成串行，吞吐崩；
     设成几十 → 又回到「被源站限流掉条」的老问题。
     """
     assert 2 <= V.PER_HOST_CONCURRENCY <= 16, (
         f"PER_HOST_CONCURRENCY={V.PER_HOST_CONCURRENCY} 不在合理区间 2~16"
+    )
+
+
+def test_cap_scales_with_host_url_count():
+    """自适应上限：host 的 URL 越多，名额越多（sqrt），否则巨型 host 会卡死。
+
+    这是 CI 实测的教训：`stream1.freetv.fun` 一个 host 有 1,199 条 URL，
+    固定上限 4 ⇒ 1,199 × 12s ÷ 4 ≈ 60 分钟，整批被一个 host 拖死。
+    """
+    v = Validator()
+    assert v._host_sem("http://small.example/a.m3u8") is not None
+
+    # 模拟 validate() 开始时的 host 统计
+    v._host_sems = {}
+    v._host_counts = {"small.example": 1, "mid.example": 296, "huge.example": 1199}
+    caps = {}
+    for host in v._host_counts:
+        sem = v._host_sem(f"http://{host}/x.m3u8")
+        caps[host] = sem._value
+
+    assert caps["small.example"] == V.PER_HOST_CONCURRENCY, (
+        f"小 host 应走地板值 {V.PER_HOST_CONCURRENCY}，实际 {caps['small.example']}"
+    )
+    assert caps["huge.example"] >= 30, (
+        f"1,199 条 URL 的巨型 host 只给了 {caps['huge.example']} 个名额 —— "
+        "会拖死整批"
+    )
+    assert caps["small.example"] < caps["mid.example"] < caps["huge.example"], (
+        f"名额没有随 URL 数递增：{caps}"
     )
 
 
