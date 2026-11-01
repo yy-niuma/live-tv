@@ -225,6 +225,7 @@ https://iptv.hiper25.com/TDM/video.m3u8
 http://cdn6.123.rr.kg/163189/amzy
 #EXTINF:-1 tvg-name="澳门莲花" tvg-logo="https://epg.112114.xyz/logo/澳门.png" group-title="🇲🇴 澳门",澳门莲花
 http://cdn6.123.rr.kg/163189/amlh
+#EXTBACKUP:http://epg.112114.xyz/lotus
 #EXTINF:-1 tvg-name="澳门资讯" tvg-logo="https://epg.112114.xyz/logo/澳门.png" group-title="🇲🇴 澳门",澳门资讯
 https://live5.tdm.com.mo/ch5/info_ch5.live/playlist.m3u8
 
