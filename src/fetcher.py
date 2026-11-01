@@ -117,14 +117,36 @@ class Fetcher:
         self.max_concurrent = max_concurrent
         self.max_retries = max_retries
         self._semaphore: Optional[asyncio.Semaphore] = None
+        # 批次级 session：fetch_all() 建一个，全批共用，批次结束关闭。
+        # 早期版本在 `_get_text()` 里每 URL 新建一个 —— 每次请求重做
+        # TCP + TLS 握手，aiohttp 的连接池完全用不上。
+        self._session: Optional[aiohttp.ClientSession] = None
 
     async def fetch_all(self) -> List[Channel]:
-        """从所有启用的数据源抓取频道"""
+        """从所有启用的数据源抓取频道
+
+        **批次级 session（2026-11-01 性能优化）**：建**一个** ClientSession
+        （带 TCPConnector 连接池），全批共用，批次结束才关闭。
+        早期版本在 `_get_text()` 里每 URL 新建一个 session ——
+        每次请求都重做 TCP + TLS 握手，aiohttp 的连接复用形同虚设。
+        实测 3 个真实源：每请求新建 3.16s vs 共享并发 1.42s（2.23x）。
+
+        抓取阶段是 30 个源各一个大文件（`iptv-org` 单独 11,374 条），
+        复用后同一 host 的连续请求能省掉重复握手。
+        """
         sources = self.config.sources
         self._semaphore = asyncio.Semaphore(self.max_concurrent)
 
-        tasks = [self._fetch_source(source) for source in sources]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        timeout = aiohttp.ClientTimeout(total=30)
+        connector = aiohttp.TCPConnector(limit=0, ttl_dns_cache=300)
+        async with aiohttp.ClientSession(timeout=timeout,
+                                         connector=connector) as session:
+            self._session = session
+            try:
+                tasks = [self._fetch_source(source) for source in sources]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+            finally:
+                self._session = None
 
         channels = []
         for result in results:
@@ -153,13 +175,7 @@ class Fetcher:
         for attempt in range(self.max_retries):
             try:
                 text = await self._get_text(url, headers=headers)
-                channels = self.parse_text(text).channels
-                if not channels:
-                    # 单流直连：源 URL 本身就是**一个**可播的 HLS 播放列表
-                    # （#EXTM3U + #EXT-X-STREAM-INF，没有 #EXTINF），
-                    # parse_m3u_text 解析不出频道 —— 把源 URL 当成一个频道收下。
-                    # 官方直连源（TDM 澳门台、耀才财经台）就是这种形态。
-                    channels = self._as_single_stream(url, text, source)
+                channels = self.parse_source_text(text, url, source).channels
                 if channels:
                     print(f"[Fetcher] {name}: got {len(channels)} channels")
                 else:
@@ -185,9 +201,23 @@ class Fetcher:
         return self.parse_text(text).channels
 
     async def _get_text(self, url: str, headers: Optional[Dict[str, str]] = None) -> str:
+        """抓一个 URL 的文本。
+
+        **批次级 session**：优先用 `fetch_all()` 建好的共享 session；
+        没有的话（有人直接调 `_get_text()`，如体检脚本、测试）
+        才临时建一个并在用完后关闭 —— 这条兼容路径保证
+        「单次调用也能用」，但批量路径不会走到它。
+        """
         if self._semaphore is None:
             # 允许不经过 fetch_all() 直接调用（脚本/测试常用）
             self._semaphore = asyncio.Semaphore(self.max_concurrent)
+
+        if self._session is not None:
+            async with self._semaphore:
+                async with self._session.get(url, headers=headers) as resp:
+                    resp.raise_for_status()
+                    return await resp.text()
+
         timeout = aiohttp.ClientTimeout(total=30)
         async with self._semaphore:
             async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -256,6 +286,30 @@ class Fetcher:
             return ParseResult(chans, "yaml")
 
         return ParseResult([], "empty")
+
+    def parse_source_text(self, text: str, url: str, source: Dict) -> ParseResult:
+        """解析一个源的完整口径 —— **主流程与体检脚本的唯一事实来源**。
+
+        与 `parse_text()` 的差别只有一条：解析出 0 条时兜底调
+        `_as_single_stream()`，把「源 URL 本身就是一条可播 HLS 流」收成一个频道。
+        官方直连源（TDM 澳门台、TVB 明珠、hidns 的 RTHK31/32 与 HOY78）
+        就是这种形态：body 是 `#EXTM3U` + `#EXT-X-STREAM-INF`，**没有** `#EXTINF`。
+
+        为什么要抽成公开方法（2026-11-01）：`scripts/check_sources.py` 早期
+        直接调 `parse_text()`，主流程调 `_fetch_source()`（内含单流直连兜底）——
+        两个路径不一致，体检把 5 个**活的**官方源报成 dead。
+        假警报和静默失效一样有害：人会据此把好源删掉。
+        现在两边都走这个方法，结构上不可能再漂移。
+
+        `source` 传源配置（用于取 `display_name` / `group` 作为单流直连的频道名）。
+        """
+        result = self.parse_text(text)
+        if result.channels:
+            return result
+        channels = self._as_single_stream(url, text, source)
+        if channels:
+            return ParseResult(channels, "single_stream")
+        return result
 
     def parse_m3u_text(self, text: str) -> List[Channel]:
         """解析 m3u / m3u8 文本"""

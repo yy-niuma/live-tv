@@ -153,6 +153,80 @@ if len(channels) > 100:
 
 ---
 
+## 13. 验证器把两类非直播资源判活 —— 已修（2026-11-01）
+
+**发现方式**：从 `config/stream_health.json` 的「判活」集合里随机抽 40 条，
+用 **curl**（不同的 HTTP 栈）独立复核 → **5 条判错（12.5%）**。
+
+### 13.1 `.ts` / `.mp4` 直连被当成直播流
+
+`_is_valid_response()` 收 `"video"` Content-Type，而 `_looks_like_playlist_url()`
+只认 `.m3u8` / `.m3u` —— 于是 `.ts` 走 **HEAD 路径**，拿到 200 + `video/mp2t`
+就判活，**从头到尾没读 body**，连「这是不是直播」都没问过。
+
+实测样本：
+```
+http://125.227.210.55:1001/VideoInput/play.ts          → 200 video/mp2t，body 是裸 TS
+http://s.rocketdns.info:8080/live/.../648984.ts        → 200 video/mp2t
+```
+
+**修法**：新增 `BARE_MEDIA_SUFFIXES`（`.ts/.mp4/.mp3/.aac/.flv/.m4s/.mov`），
+这类 URL 也走 GET 读 body，用**播放列表签名**（`#EXTM3U`）判定 ——
+有的源确实用 `.ts` 后缀装 HLS 清单，**不能一刀切按后缀判死**。
+
+### 13.2 YouTube 图片 CDN（`kwimgs.com`）被判活
+
+`https://alimov2.a.kwimgs.com/upic/2023/01/06/16/BMjAyMzAxMDYxNjMxMTNf...`
+是 **YouTube 的缩略图资源**（`upic` = user picture），返回 200 + `image/jpeg`。
+`PSEUDO_LIVE_KEYWORDS` 只拦 `youtube.com` / `youtu.be`，漏了 `kwimgs.com`
+（YouTube 的静态资源 CDN）。
+
+**修法**：`PSEUDO_LIVE_KEYWORDS` 加 `kwimgs.com`。
+产物 1,375 条 URL 里有 21 条是这种（1.7%）。
+
+### 13.3 DNS 解析失败被当成死链 —— 已修（2026-11-01）
+
+高并发下本机 DNS 解析器扛不住（每个 URL 都是不同 host），
+`socket.gaierror: [Errno -3] Temporary failure in name resolution`
+被 `except (aiohttp.ClientError, asyncio.TimeoutError)` 捕获
+→ 记一次失败 → **判死**。
+
+**误验证放大机制**：判死不只是踢出这一轮 —— 熔断计数还会累加，
+连续 3 次就冻结这条 URL，后续几轮全部 0 请求跳过。
+**一次 DNS 抖动被放大成持续性误杀。**
+
+实测证据（600 条真实 URL，约 54% 活链 + 46% 死链，与 CI 同构成）：
+
+| 并发 | 可用条数 | 基准 | 掉条 | 耗时(s) |
+|---:|---:|---:|---:|---:|
+| 40 | 328 | 328 | 0 | 31.9 |
+| 80 | 321 | 328 | 7 | 14.5 |
+| 120 | 284 | 328 | 44 | 14.1 |
+| 160 | 141 | 328 | 187 | 23.9 |
+
+**修法**：`aiohttp.ClientConnectorDNSError` 单独捕获 →
+**不记熔断**（不是链路的观测，是环境的观测）+ **保守放行**
+（不能证明它死了，就不能判它死）。与「读不到 body 保守放行」同一口径。
+
+`_children_reachable()` 里子流的 DNS 失败同样保守放行。
+
+### 13.4 仍然存在的保守放行（**有意为之，不是缺陷**）
+
+以下三处「读不到 = 判活」是**刻意**的：geo-block 的 403、chunked 读取异常
+都不能当成「流死了」的证据 —— 那是误判**死**，比误判活更糟（真频道被踢出产物）。
+
+| 位置 | 行为 | 理由 |
+|---|---|---|
+| `_read_body()` 返回 `None` → `_is_valid_content()` | 判活 | 读不到 ≠ 是假 |
+| `_check_whitelisted()` except | 判活 | 白名单 CDN 常返回 geo-block 403 |
+| `_children_reachable()` except（非 DNS） | 判死 | 子流明确不可达是「整棵树都不可达」的证据 |
+
+**代价**：可用率会有虚高（白名单免探测的条目定义上必然通过）。
+CI 的「白名单盲区补测」步骤专门补这一块 —— 实测 18,952 条 URL 里命中白名单
+15 条（0.1%），量很小，但那一档是**零请求放行**，不是测出来的。
+
+---
+
 ## 数字核实
 
 ```bash

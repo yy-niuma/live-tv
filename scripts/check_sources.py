@@ -112,12 +112,25 @@ async def probe_source(fetcher: Fetcher, src: dict) -> dict:
     """抓一个源并数条数。任何异常都收敛成 `error` 字段，绝不外抛。
 
     外抛会让「一个源挂掉」升级成「整次体检没结果」，这正好是静默失效的反面错误。
+
+    **口径必须与主流程一致（2026-11-01 修）**：
+    早期版本这里用 `fetcher.parse_text(text)` 自己解析，而主流程
+    `Fetcher._fetch_source()` 在解析出 0 条时会兜底调 `_as_single_stream()`，
+    把「源 URL 本身就是一条可播 HLS 流」收成一个频道。两个路径不一致 →
+    体检把 5 个**活的**官方直连源报成 dead（tdm-macau-official /
+    bstv-hk-official / rthk31-hidns / rthk32-hidns / hoy78-hidns）。
+    实测这 5 个源 curl 全部 200 + `#EXTM3U`，主流程各抓到 1 条。
+
+    这是「假警报」—— 和静默失效一样有害：人会据此把好源从 sources.yaml 删掉。
+
+    现在改调 `Fetcher.parse_source_text()` —— 它是主流程与体检的**唯一事实来源**，
+    结构上不可能再漂移。`format` 列现在能表达 `single_stream`（单流直连）。
     """
     name = src.get("name", "?")
     url = src.get("url", "")
     try:
         text = await fetcher._get_text(url, headers=src.get("headers") or None)
-        result = fetcher.parse_text(text)
+        result = fetcher.parse_source_text(text, url, src)
         count, fmt, err = len(result.channels), result.format, ""
     except Exception as exc:  # noqa: BLE001
         count, fmt, err = 0, "-", f"{type(exc).__name__}: {exc}"[:90]
