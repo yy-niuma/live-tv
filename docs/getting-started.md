@@ -121,7 +121,24 @@ python3 -c "import json;d=json.load(open('output/stats.json'));print(len(d), sum
 
 用播放器验证：把 `output/all_merged.m3u` 直接拖进 VLC（媒体 → 打开文件），能出列表即产物格式正确。
 
-## 6. 常见问题
+## 6. 命令行参数
+
+`python -m src.main --help` 共 11 项（含 `-h`），即 10 个功能选项 —— 下表按 `--help` 的顺序：
+
+| 参数 | 说明 |
+|---|---|
+| `--config, -c CONFIG` | 配置文件目录 |
+| `--output, -o OUTPUT` | 输出目录 |
+| `--no-cache` | 禁用缓存（注意：这条路径**不写**缓存，见 [known-issues.md](known-issues.md) §3） |
+| `--skip-validation` | 跳过 URL 验证（保留全部抓到的频道） |
+| `--valid-urls-file PATH` | 从该 JSON 文件读取已验证有效的 URL 列表并跳过验证 —— **CI 分片合并用**，本地别用 |
+| `--skip-fetch` | 跳过抓取，使用缓存数据；无缓存则报错退出 |
+| `--health-file PATH` | 实测可播快照 `{url: bool}`（`check_streams.py --health-out` 的产物）；不传则读 `config/stream_health.json`（若存在）。机制见 [stream-health.md](stream-health.md) |
+| `--fetch-timeout SECOND` | 抓取超时秒数，默认 `90` |
+| `--validate-concurrency N` | 验证阶段并发数，默认 `80`。实测 20~150 全部档位可用条数持平、不掉条，80 最快；再往上可能被源站限流。见 [ci.md](ci.md) §7 |
+| `--validate-timeout N` | 验证阶段单条超时秒数，默认 `10`。实测调到 8/5 会把慢但仍可用的链路判死（可用条数 296→293/291），**不建议调低** |
+
+## 7. 常见问题
 
 ### 1) 为什么每个分组最多只有 100 条？
 
@@ -136,7 +153,7 @@ if len(channels) > 100:
     all_lines.append(f"# ... and {len(channels) - 100} more")
 ```
 
-`all_merged.m3u` 里每个分组只写前 100 条，超出的部分用一行 `# ... and N more` 注释代替（播放器会忽略这行）。当前 `all_merged.m3u` 里有 9 个分组触发了上限，丢弃合计 6,892 条。
+`all_merged.m3u` 里每个分组只写前 100 条，超出的部分用一行 `# ... and N more` 注释代替（播放器会忽略这行）。当前 `all_merged.m3u` 里有 **9 个分组**触发了上限，丢弃合计 **7,956 条**（各分组丢弃数：213 / 589 / 482 / 4,250 / 638 / 312 / 1,040 / 228 / 204）。
 
 `hk_merged.m3u` **没有**这个上限（`src/generator.py:131-141` 是完整写出，无 `[:100]`），所以港澳台列表是「全量」的——只是它本来就只收港澳台。
 
@@ -144,23 +161,28 @@ if len(channels) > 100:
 
 ### 2) 为什么 `stats.json` 加起来比文件里的条目多得多？
 
-因为三个数记的是三个不同阶段：
+因为三个数记的是三个不同阶段。以远端最新产物（2026-11-01）为例：
 
-| 阶段 | 数字（仓库快照） | 说明 |
+| 阶段 | 数字 | 说明 |
 |---|---:|---|
-| 分组完成后写 `stats.json` | 8,371 | 生成文件**之前**的计数 |
-| 写文件前过滤脏名（`is_clean_name`） | 8,056 | 8371 − 8056 = 315 条名字带 `Chrome/`、`Mozilla` 等浏览器残留的被丢掉；8056 只出现在文件第 6 行注释里 |
-| 应用 100 条/组上限后真正写入 | **1,164** | 8056 − 6892 = 1164 |
+| 分组完成后写 `stats.json` | 9,340 | 生成文件**之前**的计数（`src/main.py:249`） |
+| 写文件前过滤脏名（`is_clean_name`） | 9,337 | 9,340 − 9,337 = **仅 3 条**名字带 `Chrome/`、`Mozilla` 等浏览器残留的被丢掉；9,337 只出现在文件第 6 行 `# Total:` 注释里（`src/generator.py:308/360`） |
+| 应用 100 条/组上限后真正写入 | **1,381** | 9,337 − 7,956 = 1,381 |
+
+**自洽校验**：`1,381 + 7,956 = 9,337` ✅ 正好等于 `# Total:` 行。
+
+> 脏名过滤的收益从早期的 315 条掉到 3 条，是因为抓取/归一层的清理改好了 —— 不是过滤失效。
+> 具体每天变，公式不变：`stats 求和 − Total = 脏名丢弃数`，`Total − 实际 EXTINF = 100/组丢弃数`。
 
 一句话：`stats.json` 是「分组统计」，m3u 是「交付样本」。
 
 ### 3) 为什么港澳台列表只有几十个频道？
 
-`hk_merged.m3u` 只收 `is_hk_region()` 判定为港澳台的频道，不是全球列表的子集拷贝。它在历史提交里一直在几十的量级波动（仓库快照 33 条），源站死掉几个就能掉一截。
+`hk_merged.m3u` 只收 `is_hk_region()` 判定为港澳台的频道，不是全球列表的子集拷贝。它在历史提交里一直在几十到一百多的量级波动（当前仓库快照 **78 条 / 10 分组**），源站死掉几个就能掉一截。
 
 **这个数在 2026-10-29 的分组逻辑重构后明显变大了**：原先 `is_hk_region()` 与 `categorize()` 各维护一份港澳台关键词表，且前者有几条正则写成双反斜杠（`\\bmacau\\b`）永不命中，导致 `Macau TV` / `TTV` / `PTS` / `CNA 中央社` / `非凡商业台` / `东森财经新闻` / `港台电视31` 被判成港澳台却进不了 hk 列表。现在两者共用 `HK_TW_MO_RULES`，实测同一天两次全新运行：`hk_merged` 从 **58 条 / 7 分组** 变成 **107 条 / 9 分组**（13,470 条语料上 `is_hk_region()` 覆盖 92 → 145，丢失 0 条）。
 
-（仓库里现有的 `output/hk_merged.m3u` 还是重构前的，所以仍是 33 条。）
+（历史备注：重构当天仓库里的 `output/hk_merged.m3u` 还是重构前的 33 条，现在已由每日 CI 产出 **78 条 / 10 分组**。）
 
 ### 4) `--skip-fetch` 报「跳过抓取但无缓存数据，请先正常运行一次抓取」
 
@@ -173,15 +195,53 @@ if len(channels) > 100:
 
 ### 5) 为什么跑得这么慢？
 
-瓶颈是「合并同名频道 + 分类」这一段：`categorizer.py` 里几百个正则都以**字符串**形式传给 `re.search`，`re` 的内部缓存只有 512 条，交替访问时被反复冲掉，于是时间几乎都花在重新编译正则上（审计报告 `audit-c-engineering.md` §3.4 有 cProfile 证据）。本机样例：1,379 个频道要 40 秒左右。
+先分清两段：**验证阶段**（逐条探测上万个 URL）占整个跑批 95% 以上，是纯网络等待；
+**分组阶段**只占几秒。真正的瓶颈是验证，不是分类。
 
-想快：等 `categorizer` 做正则预编译（该改造未落地）；现在能做的只有减少频道量或跳过验证。
+分组侧的历史说法需要更正。`categorizer.py` 里几百个正则确实以**字符串**形式传给 `re.search`
+（未预编译），审计报告 `audit-c-engineering.md` §3.4 据此测出「1,379 频道 40.2s，预编译后 1.0s」。
+但 2026-11-02 用 `scripts/categorize_dataset/current_snapshot.tsv`（1,164 条真实频道名）复测：
+
+```console
+$ # 归一 + 分类，连跑两遍
+真实语料 1,164 条: 0.82s → 1,413 条/s     # 换算 19,500 条 ≈ 13.8s
+第二遍（re 缓存已热）: 0.82s → 1,412 条/s  # 速度完全相同
+```
+
+**第二遍没有变快**，说明 `re` 的 512 条内部缓存被冲掉**不是**当前瓶颈 ——
+审计报告那个 40× 是旧代码的数字，现已不复现。CI 日志里「分组 5.4s / 19,547 条」也印证同一量级。
+
+> 局限：复测用的是 1,164 条快照（原 13,470 条的 `corpus.tsv` 已不在仓库里），
+> 样本量小于报告口径。要下定论请用完整语料复测。
+
+想更快：把正则预编译成 `re.Pattern` 仍是好实践（收益已不是 40×），
+以及跳过验证（`--skip-validation`）—— 后者才是量级差别。
 
 ### 6) 抓取阶段一堆源报错 / 返回 0 channels，正常吗？
 
-正常，且每天都在变。本次实测：`sammy0101`、`xiweiwong-hk-iptv`（`raw.gh.registry.cyou` DNS 解析失败）和 `freetv-fun`（403）三个源重试 3 次后放弃；`free-tv-hk/tw/cn/jp/kr/us/uk` 七个源返回 0 条；真正贡献量的是 `iptv-org`（11,367 条）、`CCSH-iptv`（2,819 条）、`suxuang-myIPTV`（1,211 条）、`gitee-why006-TV`（1,160 条）。
+**大部分不再是正常现象 —— 这曾经是个真 bug，已修。** 2026-10-29 逐源体检发现 20 个源里
+**11 个产出 0 条**，而总量仍有 18,285 条、`exit=0`、产物照常生成（看总量和退出码完全发现不了）。
+根因是 8 个 markdown 表格源被当成 m3u 解析、2 个指向已死的 GitHub 代理、1 个源站停服。
+修完后现在按**内容嗅探**格式（不再按扩展名），0 条会打 WARNING。
 
-源全挂时会怎样：`stats.json` 会变成很小的数字或空对象，产物基本没内容。这种「静默产出空文件」由 CI 的 `scripts/check_output.py` 兜底（频道总数 < 3000 或港澳台为 0 就非零退出），本地跑没有这层保护。
+当前实测（2026-11-02，`scripts/check_sources.py`）：**30 个启用源全部有产出，合计 22,215 条**。
+贡献量最大的：`iptv-org` 11,374 / `CCSH-iptv` 2,414 / `free-tv-all` 2,043 / `suxuang-myIPTV` 1,211 /
+`gitee-why006-TV` 1,160 / `epg-pw` 1,125。
+
+所以现在的口径是：**源站波动是常态（单个源某天 0 条、超时都正常），但「整批 0 产出」不是。**
+排查顺序：先跑 `scripts/check_sources.py` 看是哪个源，再看它是不是格式变更或域名失效。
+全过程见 [source-health.md](source-health.md)。
+
+源全挂时会怎样：`stats.json` 会变成很小的数字或空对象，产物基本没内容。这种「静默产出空文件」
+由 CI 的 `scripts/check_output.py` 兜底，它有 5 类断言（不是只比一个总数）：
+
+| 常量 | 值 | 检查什么 |
+|---|---:|---|
+| `MIN_TOTAL_CHANNELS` | 3,000 | `stats.json` 频道总数下限 |
+| `MIN_TOTAL_EXTINF` | 1,000 | `all_merged.m3u` 实际 EXTINF 行数下限 |
+| `MIN_HK_CHANNELS` | 20 | `hk_merged.m3u` 实际 EXTINF 行数下限 |
+
+另有分组覆盖、`#EXTGRP` 分段数与 `min(K,100)` 一致性等断言。本地跑**没有**这层保护。
 
 ### 7) 跑完多了个 `src/.cache/` 目录，要提交吗？
 
@@ -214,23 +274,35 @@ python -m src.main --skip-validation --output /tmp/iptv-out
 
 ## 附录：本文数字的核实命令
 
+> 下面的「期望值」是 **2026-11-01 远端产物**的实测结果，会随源站存活情况漂移。
+> 复核时先 `git fetch` 再跑，数字不同不代表命令写错。
+
 ```bash
 cd live-tv
+git fetch origin -q
 
-# 数据源数量（20 个，全部 enabled）
-python3 -c "import yaml;d=yaml.safe_load(open('config/sources.yaml'));print(len(d['sources']))"
+# 数据源数量（配置 32 个 / 启用 30 个 / 停用 2 个）
+python3 -c "
+import yaml; d=yaml.safe_load(open('config/sources.yaml')); s=d['sources']
+print(len(s), len([x for x in s if x.get('enabled', True)]))"      # 32 30
 
-# 三个口径的频道数
-python3 -c "import json;print(sum(json.load(open('output/stats.json')).values()))"   # 8371
-python3 -c "import json;print(len(json.load(open('output/stats.json'))))"            # 51
-grep -c '^#EXTINF' output/all_merged.m3u      # 1164
-grep -c '^#EXTINF' output/hk_merged.m3u       # 33
-grep -c '^#EXTGRP' output/hk_merged.m3u       # 7
-head -6 output/all_merged.m3u | tail -1       # # Total: 8056 channels, 51 categories
+# 三个口径的频道数（用远端最新提交，避免本地产物过期）
+git show origin/main:output/stats.json > /tmp/stats.json
+python3 -c "import json;d=json.load(open('/tmp/stats.json'));print(sum(d.values()))"  # 9340
+python3 -c "import json;print(len(json.load(open('/tmp/stats.json'))))"              # 52
 
-# 100/组上限的证据
-grep -c '^# \.\.\. and' output/all_merged.m3u                     # 9 个分组超限
-grep '^# \.\.\. and' output/all_merged.m3u | sed 's/[^0-9]//g'    # 293 427 562 581 246 869 172 168 3574，合计 6892
+git show origin/main:output/all_merged.m3u > /tmp/all.m3u
+git show origin/main:output/hk_merged.m3u  > /tmp/hk.m3u
+grep -c '^#EXTINF' /tmp/all.m3u     # 1381  ← 实际交付条数
+grep -c '^#EXTINF' /tmp/hk.m3u      # 78
+grep -c '^#EXTGRP' /tmp/hk.m3u      # 10
+head -6 /tmp/all.m3u | tail -1      # # Total: 9337 channels, 52 categories
+
+# 口径自洽验证：Total = 实际条数 + 被 100/组上限丢弃的条数
+grep -c '^# \.\.\. and' /tmp/all.m3u                                # 9 个分组超限
+grep '^# \.\.\. and' /tmp/all.m3u | sed 's/[^0-9]//g' | tr '\n' ' '  # 213 589 482 4250 638 312 1040 228 204
+grep '^# \.\.\. and' /tmp/all.m3u | sed 's/[^0-9]//g' | awk '{s+=$1} END {print s}'
+# 7956   →   1381 + 7956 = 9337 ✅ 与 # Total: 行一致
 
 # 代码事实
 python -m src.main --help
