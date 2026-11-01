@@ -95,7 +95,11 @@ async def amain() -> int:
         print(f"❌ 抓取超时（{args.fetch_timeout}s）", file=sys.stderr)
         return 1
 
-    mine = [ch for ch in channels if shard_of(ch.url, args.shard_count) == args.shard_index]
+    mine = [
+        ch
+        for ch in channels
+        if shard_of(ch.url, args.shard_count) == args.shard_index
+    ]
     print(
         f"[shard {args.shard_index}/{args.shard_count}] "
         f"全量 {len(channels)} 条 → 本片 {len(mine)} 条",
