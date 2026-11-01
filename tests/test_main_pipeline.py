@@ -114,7 +114,13 @@ def offline_pipeline(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 def test_cli_defaults():
     args = main_mod.build_parser().parse_args([])
-    assert args.validate_concurrency == main_mod.DEFAULT_VALIDATE_CONCURRENCY == 40
+    # 并发值不硬编码：它是**实测**出来的（scripts/bench_concurrency.py），
+    # 改档位时这个测试跟着常量走；常量本身被 test_ci_workflow.py 钉在
+    # 「已实测过的安全区间」里。
+    assert args.validate_concurrency == main_mod.DEFAULT_VALIDATE_CONCURRENCY
+    assert main_mod.DEFAULT_VALIDATE_CONCURRENCY in range(40, 121), (
+        f"默认并发 {main_mod.DEFAULT_VALIDATE_CONCURRENCY} 超出实测区间 40~120"
+    )
     assert args.validate_timeout == main_mod.DEFAULT_VALIDATE_TIMEOUT == 10
     # 既有参数不能被这次改动挤掉默认值
     assert args.fetch_timeout == 90

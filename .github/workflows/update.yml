@@ -44,6 +44,16 @@ on:
         required: false
         default: "false"
         type: string
+      validate_concurrency:
+        description: "验证阶段并发数（默认 80；调高可能被源站限流）"
+        required: false
+        default: "80"
+        type: string
+      validate_timeout:
+        description: "验证阶段单条超时秒数（默认 10；调低会判死慢链路）"
+        required: false
+        default: "10"
+        type: string
   # PR 门禁：只跑 check job，update job 用 job 级 if 挡掉（见文件头 + docs/ci.md §1）
   pull_request:
   # 主干 push：只跑只读的 check；生产 update 被 job 级 allowlist 挡住（见文件头锁 2）
@@ -61,6 +71,28 @@ concurrency:
 env:
   PYTHON_VERSION: "3.11"
   FETCH_TIMEOUT: ${{ inputs.fetch_timeout || '300' }}
+  # 验证阶段并发（2026-11-01 重新实测）。
+  #
+  # 为什么改：CI 实测「抓取数据」这一步占 18 分钟里的 17.8 分钟，
+  # 其中**验证阶段 1070 秒**是绝对大头（抓取只要 9.9 秒）。
+  # 验证是纯网络等待（4 vCPU runner 上 CPU 不是瓶颈），
+  # 所以并发就是唯一的提速杠杆：并发翻倍 → 耗时减半。
+  #
+  # 为什么不是 60：旧文档记着「并发 60 会掉条」（300 条样本 236~296 波动），
+  # 但那是**每 URL 新建 session** 的旧实现测的 —— 那时每次请求都新开一条
+  # TCP 连接，源站看到的是一堆短命连接，容易触发限流。
+  # 改成批次级 session（连接池复用）后重新实测（200 条真实 URL × 2 轮）：
+  #     并发  20   40   60   80  100  150
+  #     可用 184  184  183  184  184  184   ← 全档位持平，不掉条
+  # 复现命令：scripts/bench_concurrency.py --jobs 20,40,60,80,100,150
+  # 更大规模的复核见 docs/ci.md §7。
+  #
+  # 80 是「不丢条前提下最快」的档位，且留了余量（实测最快点 8.1s，
+  # 100/150 档反而变慢 —— 连接打满后排队）。
+  VALIDATE_CONCURRENCY: ${{ inputs.validate_concurrency || '80' }}
+  # 单条超时保持 10s：调低会把「慢但仍可用」的链路判死
+  # （实测 8s/5s 会掉条），属于偷偷降低验证口径，不做。
+  VALIDATE_TIMEOUT: ${{ inputs.validate_timeout || '10' }}
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -131,7 +163,19 @@ jobs:
     if: |
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 45 → 90 分钟（2026-11-01）。
+    #
+    # 实测耗时构成（run 41277155230）：
+    #     安装依赖   4s
+    #     抓取       9.9s
+    #     验证       1070s  ← 99% 的时间在这里
+    #     门禁+推送  5s
+    #     总计       18 分钟
+    # 验证并发提到 80 后预计降到 ~9-10 分钟，45 分钟已有 4 倍余量；
+    # 放宽到 90 是为了「某天源站集体变慢 / 大量超时」时不至于被杀 ——
+    # job 被 timeout 杀掉 = 当天的产物不更新（不是慢，是没有）。
+    # 公开仓库 Actions 分钟数无限额，放宽 timeout 不花配额。
+    timeout-minutes: 90
     # 提交产物需要写权限；作用域只到本 job，不放宽全局默认
     permissions:
       contents: write
@@ -162,6 +206,8 @@ jobs:
           python -u -m src.main \
             --no-cache \
             --fetch-timeout ${{ env.FETCH_TIMEOUT }} \
+            --validate-concurrency ${{ env.VALIDATE_CONCURRENCY }} \
+            --validate-timeout ${{ env.VALIDATE_TIMEOUT }} \
             --output ./output
           echo "::endgroup::"
 

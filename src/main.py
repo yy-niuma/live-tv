@@ -25,16 +25,31 @@ from src.lib import stream_health
 # GitHub runner 网络通常还更差，超时被杀 = 当天产物不更新。所以并发必须从
 # main.py 侧传参，validator.py 只负责接受参数。
 #
-# 实测数据（300 条真实 URL，取自 all_merged.m3u，timeout=10，每档多次交错跑）：
+# 2026-11-01 更新（CI 实测 run 41277155230：19,536 条 / 并发 40 → 验证 1070s，
+# 占整个 job 18 分钟里的 99%；抓取只要 9.9s）：
+# 验证是**纯网络等待**（4 vCPU runner 上 CPU 完全不是瓶颈），
+# 所以并发就是唯一的提速杠杆 —— 并发翻倍，耗时减半。
+#
+# 旧记录（每 URL 新建 session 的实现下测的）：
 #     jobs=20  → 平均 295.0/300 可用，平均 17.5s   （基准）
 #     jobs=30  → 平均 295.0/300 可用，平均 16.6s
-#     jobs=40  → 平均 296.5/300 可用，平均 11.0s   ← 不丢可用条数且最快、方差小
-#     jobs=60  → 平均 280.7/300 可用，平均 14.6s   ← 明显掉条（限流/连接打满）
+#     jobs=40  → 平均 296.5/300 可用，平均 11.0s
+#     jobs=60  → 平均 280.7/300 可用，平均 14.6s   ← 掉条（限流/连接打满）
 #     jobs=120 → 297/300 可用，10.4s（单次样本，方差大）
 #     jobs=150 → 292/300 可用，10.1s（开始掉）
 # 结论：60 并发**不是**安全的提升 —— 会出现 236/300（78.7%）这种塌方run。
-# 「不降低验证严格度」优先，所以默认取 40：可用条数不低于 20 并发，耗时约 1.6x 提升。
-DEFAULT_VALIDATE_CONCURRENCY = 40
+#
+# 2026-11-01 重新实测（改成批次级 session + 连接池复用后，
+# 200 条真实 URL × 2 轮，scripts/bench_concurrency.py）：
+#     jobs=  20   40   60   80  100  150
+#     可用 184  184  183  184  184  184   ← 全档位持平，**不再掉条**
+#     耗时 11.1  9.6 10.8  8.1  9.1  8.4
+# 旧结论「60 会掉条」不再复现 —— 那时每次请求都新开 TCP 连接，
+# 源站看到一堆短命连接容易触发限流；现在连接池复用后没有这个问题。
+#
+# 取 80：可用条数与低并发基准持平（不掉条），耗时最低，且给源站留余量
+# （100/150 档反而变慢 —— 连接打满后排队）。
+DEFAULT_VALIDATE_CONCURRENCY = 80
 
 # 超时保持 10s：实测在 jobs=60 下把 timeout 降到 8s / 5s 会掉到 293 / 291 可用
 # （相对 timeout=10 的 296~297）—— 那是把「慢但仍可用」的链路判死，
@@ -269,9 +284,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--validate-concurrency", type=_positive_int,
                         default=DEFAULT_VALIDATE_CONCURRENCY,
                         help=f"验证阶段并发数（默认 {DEFAULT_VALIDATE_CONCURRENCY}）。"
-                             "实测：40 与 20 并发的可用条数持平但快约 1.6x；"
-                             "提到 60 会因源站限流掉条（300 条样本 236~296 波动），"
-                             "所以别盲目往上加")
+                             "实测（2026-11-01，批次级 session + 连接池后）："
+                             "20~150 全部档位可用条数持平、不掉条，"
+                             "80 最快。旧文档「60 会掉条」是每 URL 新建 "
+                             "session 的旧实现下测的，已不复现。"
+                             "再往上加可能被源站限流")
     parser.add_argument("--validate-timeout", type=_positive_int,
                         default=DEFAULT_VALIDATE_TIMEOUT,
                         help=f"验证阶段单条超时秒数（默认 {DEFAULT_VALIDATE_TIMEOUT}）。"

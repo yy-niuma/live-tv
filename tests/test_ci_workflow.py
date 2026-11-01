@@ -258,27 +258,116 @@ def test_gate_step_has_timeout() -> None:
 # (d) timeout 预算
 # ---------------------------------------------------------------------------
 def test_job_timeouts_fit_the_budget() -> None:
-    """实测流水线 33.4 分钟，update 的 timeout 是 45 分钟 —— 不许再放大。"""
+    """timeout 必须在平台上限内，且不许放到没有意义的巨大值。
+
+    **2026-11-01 修正**：旧版断言 `update <= 45`，理由写的是
+    「超 45 分钟会撞上 GitHub 的作业上限」—— 这是**错误认知**。
+    GitHub 官方上限是**单个 job 360 分钟（6 小时）**，默认也是 360
+    （GitHub 官方文档 / community discussion #27177：「each job can run
+    for up to 6 hours (360 minutes) of execution time」）。
+    45 分钟从来不是平台限制，是项目自设的预算。
+
+    真正的约束是**公开仓库 Actions 分钟数无限额**（public repo 免费无限），
+    所以放宽 timeout 不花配额 —— 放宽的理由是「job 被 timeout 杀掉
+    = 当天的产物不更新」（不是慢，是没有）。
+
+    仍然要卡上限：防止有人把 timeout 放到 360（那样一次挂起就占住
+    runner 六小时），也防止删掉 timeout（默认 360，同样是隐患）。
+    """
     jobs = load(UPDATE_YML)["jobs"]
     for name, job in jobs.items():
         timeout = job.get("timeout-minutes")
         assert isinstance(timeout, int) and timeout > 0, f"{name} 没有 timeout-minutes"
 
-    assert jobs["update"]["timeout-minutes"] <= 45, (
-        "update 超 45 分钟会撞上 GitHub 的作业上限并让当天产物停在半路"
+    # GitHub 平台硬上限（单 job 6 小时）
+    assert jobs["update"]["timeout-minutes"] <= 120, (
+        "update 的 timeout 应远低于 GitHub 的 360 分钟平台上限 —— "
+        "本项目的实测流水线约 10-20 分钟，timeout 是「源站集体变慢时的保险」"
     )
     assert jobs["check"]["timeout-minutes"] <= 15
 
 
 def test_gate_cost_leaves_headroom_in_update_job() -> None:
-    """门禁的声明成本必须留在 45 分钟预算内（含 33.4 分钟基线）。"""
+    """门禁的声明成本必须留在 update job 的预算内。
+
+    基线从 33.4 分钟改成 18.3 分钟（2026-11-01 CI 实测 run 41277155230：
+    安装依赖 4s + 抓取 9.9s + 验证 1070s + 门禁/推送 5s = 18.3 分钟；
+    验证并发提到 80 后预计降到 ~9-10 分钟）。
+    """
     doc = load(UPDATE_YML)
     budget = doc["jobs"]["update"]["timeout-minutes"]
-    baseline = 33.4  # 控制器实测完整流水线耗时（分钟）
+    baseline = 18.3  # 2026-11-01 CI 实测完整流水线耗时（分钟）
     gate = step_containing(steps_of(doc, "update"), "check_streams.py")
     assert baseline + gate["timeout-minutes"] <= budget, (
         f"基线 {baseline} + 门禁上限 {gate['timeout-minutes']} 超出 job 预算 {budget}"
     )
+
+
+# ---------------------------------------------------------------------------
+# (e) 验证并发档位（2026-11-01 新增）
+# ---------------------------------------------------------------------------
+def test_ci_validate_concurrency_is_the_measured_optimum() -> None:
+    """CI 的验证并发必须是**实测档位**，且与 src/main.py 的默认值一致。
+
+    为什么不钉死一个具体数字：并发是「源站能扛多少」与「省多少时间」的
+    权衡，改一次就要重跑 `scripts/bench_concurrency.py`。但**必须一致** ——
+    workflow 写 80 而 main.py 默认 40，就等于本地和 CI 跑的是两套口径，
+    本地测出来的结论对 CI 无效。
+    """
+    doc = load(UPDATE_YML)
+    env = doc.get("env") or {}
+    raw = str(env.get("VALIDATE_CONCURRENCY", ""))
+    assert raw, "workflow 必须定义 VALIDATE_CONCURRENCY"
+
+    from src.main import DEFAULT_VALIDATE_CONCURRENCY, DEFAULT_VALIDATE_TIMEOUT
+
+    # env 里写的是 `${{ inputs.validate_concurrency || '80' }}` 这种形式，
+    # 取最后一个引号里的数字。
+    digits = [seg for seg in raw.split("'") if seg.strip().isdigit()]
+    assert digits, f"VALIDATE_CONCURRENCY 里解析不出数字：{raw!r}"
+    ci_value = int(digits[-1])
+
+    assert ci_value == DEFAULT_VALIDATE_CONCURRENCY, (
+        f"CI 并发 {ci_value} 与 src/main.py 默认 {DEFAULT_VALIDATE_CONCURRENCY} "
+        "不一致 —— 本地跑的和 CI 跑的不是一套口径"
+    )
+
+    # 实测区间：20~150 全档位可用条数持平（不掉条），80 最快。
+    # 低于 20 白白浪费；高于 150 未实测且源站限流风险上升。
+    assert 40 <= ci_value <= 120, (
+        f"验证并发 {ci_value} 超出实测过的安全区间 40~120 —— "
+        "加之前先跑 scripts/bench_concurrency.py"
+    )
+
+
+def test_ci_passes_concurrency_to_the_pipeline() -> None:
+    """并发必须真的传进 src.main —— 只定义 env 不传等于没改。"""
+    doc = load(UPDATE_YML)
+    steps = steps_of(doc, "update")
+    fetch = step_containing(steps, "src.main")
+    run = str(fetch.get("run", ""))
+    assert "--validate-concurrency" in run, (
+        "抓取步骤必须传 --validate-concurrency，否则 env 里的并发是摆设"
+    )
+    assert "--validate-timeout" in run, (
+        "抓取步骤必须传 --validate-timeout"
+    )
+
+
+def test_ci_validate_timeout_stays_at_ten() -> None:
+    """单条超时必须保持 10s —— 调低会把「慢但仍可用」的链路判死。
+
+    实测（旧实现，300 条样本）：timeout 10 → 296~297 可用，
+    8s → 293，5s → 291。那是偷偷降低验证口径，不做。
+    """
+    from src.main import DEFAULT_VALIDATE_TIMEOUT
+
+    doc = load(UPDATE_YML)
+    env = doc.get("env") or {}
+    raw = str(env.get("VALIDATE_TIMEOUT", ""))
+    digits = [seg for seg in raw.split("'") if seg.strip().isdigit()]
+    assert digits, f"VALIDATE_TIMEOUT 里解析不出数字：{raw!r}"
+    assert int(digits[-1]) == DEFAULT_VALIDATE_TIMEOUT == 10
 
 
 # ---------------------------------------------------------------------------
