@@ -145,6 +145,23 @@ DNS_RETRY_DELAY = 0.5
 KNOWN_DEAD_MIN_BAD = 2
 KNOWN_DEAD_TIMEOUT = 4
 
+# 每个 host 的并发上限。
+#
+# 为什么要有这个：全局并发拉高后，掉条不是被总带宽卡住，而是**被单源限流**。
+# 真实样本里 600 条 URL 只分布在 405 个 host，最多的单个 host 占 39 条
+# （jmp2.uk 39、stream1.freetv.fun 30）。全局并发 160 时这些 host 会被
+# 同时怼上几十个连接 ⇒ 源站限流/拒绝 ⇒ 判死 ⇒ 掉条。
+#
+# 实测（600 条真实 URL，干净环境、每档 2 轮）：
+#     全局并发   可用条数   掉条
+#        40        342       0
+#        80        335       7
+#       120        301      41
+#       160        214     128
+# 也就是说**瓶颈是 per-host 而不是全局**。放开全局并发、单独掐住每个 host，
+# 才能在「不掉条」的前提下真正提吞吐。
+PER_HOST_CONCURRENCY = 4
+
 
 def _looks_like_bare_media_url(url: str) -> bool:
     """URL 路径是否以裸媒体后缀结尾（.ts / .mp4 …）。"""
@@ -180,6 +197,8 @@ class Validator:
         self.max_concurrent = max_concurrent
         self.timeout = timeout
         self._semaphore: asyncio.Semaphore = None
+        # 按 host 的限流名额（见 `PER_HOST_CONCURRENCY` / `_host_sem`）
+        self._host_sems: dict[str, asyncio.Semaphore] = {}
         # 惰性：构造 Validator 不等于读文件；health_file=None 走 DEFAULT_PATH
         self.health_file = health_file
         self._circuit: stream_health.Circuit | None = None
@@ -396,11 +415,31 @@ class Validator:
         也不能证明链死。所以两个极端都不对：判死会误杀真频道，原地放行
         等于没验证就放进产物。**先重试**，重试用尽才保守放行。
         """
-        for attempt in range(DNS_RETRIES + 1):
-            ok = await self._check_url_attempt(url, attempt)
-            if ok is not None:      # None = DNS 失败且还该重试
-                return ok
-        return True                 # 重试用尽：保守放行
+        # 先掐 host 名额、再进全局名额：顺序固定，避免两类 semaphore 交叉死锁。
+        # 掐 host 的名额在外面还有个好处 —— 被单源限流卡住的任务不占用全局名额。
+        async with self._host_sem(url):
+            for attempt in range(DNS_RETRIES + 1):
+                ok = await self._check_url_attempt(url, attempt)
+                if ok is not None:      # None = DNS 失败且还该重试
+                    return ok
+            return True                 # 重试用尽：保守放行
+
+    def _host_sem(self, url: str) -> asyncio.Semaphore:
+        """按 host 取一个限流 semaphore（上限 `PER_HOST_CONCURRENCY`）。
+
+        全局并发只该限制「同时有多少个请求在飞」，不该让同一个源站被
+        同时怼几十个连接 —— 那会被限流/拒绝，表现为高并发下掉条。
+        见 `PER_HOST_CONCURRENCY` 的实测表。
+        """
+        try:
+            host = urlparse(url).hostname or ""
+        except Exception:
+            host = ""
+        sem = self._host_sems.get(host)
+        if sem is None:
+            sem = asyncio.Semaphore(PER_HOST_CONCURRENCY)
+            self._host_sems[host] = sem
+        return sem
 
     async def _check_url_attempt(self, url: str, attempt: int = 0):
         """单次探测尝试：返回 bool；DNS 失败且还该重试时返回 None。
