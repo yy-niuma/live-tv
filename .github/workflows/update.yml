@@ -118,10 +118,19 @@ jobs:
   # ---------------------------------------------------------------------------
   shard:
     name: 分片验证 shard ${{ matrix.shard }}
-    # 分片数 > 1 才跑；= 1 时退回单 job 内验证（update 里自带）
-    if: |
+    # 三层条件，**全部在 job 级**（job 级 if 在分配 runner 之前求值）：
+    #   1) 只在 schedule / workflow_dispatch 跑
+    #   2) shard_count > 1 才分片（=1 时退回单 job 内验证）
+    #   3) 本片的序号必须 < shard_count —— 超出矩阵范围的片**根本不启动 runner**
+    #
+    # ⚠️ 条件 3 为什么必须在 job 级：早先版本把它放在「跳过本片」这个
+    # step 里（step 级 if），结果超出范围的片**照样启动 runner**、跑完
+    # checkout + 装依赖才跳过 —— 16 片配置下 8 个 runner 白跑，
+    # 而合并步骤因为只收到 8 个 artifact 直接失败（run #219 实测）。
+    if: >-
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
-      fromJSON(github.event.inputs.shard_count || '4') > 1
+      fromJSON(github.event.inputs.shard_count || '4') > 1 &&
+      matrix.shard < fromJSON(github.event.inputs.shard_count || '4')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -130,23 +139,17 @@ jobs:
       # 一片失败不能取消其他片：重跑时要能看到完整的分片健康状况
       fail-fast: false
       matrix:
-        # 上限 8 片；实际跑几片由 shard_count 决定（超出的会在 job 级 if 里被挡）
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        # 上限 16 片。实际跑几片由 shard_count 决定，超出的在 job 级 if 里
+        # 被整个挡掉（不启动 runner）。矩阵是静态的，所以这里只能给上限。
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
 
     steps:
-      - name: 超出 shard_count 的片直接跳过
-        id: gate
-        if: matrix.shard >= fromJSON(github.event.inputs.shard_count || '4')
-        run: echo "skip=true" >> "$GITHUB_OUTPUT"
-
       - name: Checkout
-        if: steps.gate.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
       - name: Set up Python ${{ env.PYTHON_VERSION }}
-        if: steps.gate.outputs.skip != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -154,13 +157,11 @@ jobs:
           cache-dependency-path: requirements.txt
 
       - name: 安装依赖
-        if: steps.gate.outputs.skip != 'true'
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: 验证本片
-        if: steps.gate.outputs.skip != 'true'
         run: |
           python -u scripts/validate_shard.py \
             --shard-index ${{ matrix.shard }} \
@@ -171,7 +172,6 @@ jobs:
             --out-dir ./shard-${{ matrix.shard }}
 
       - name: 上传分片结果
-        if: steps.gate.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: shard-${{ matrix.shard }}

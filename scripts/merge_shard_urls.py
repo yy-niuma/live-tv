@@ -31,10 +31,31 @@ def merge(paths: list[Path], expected: int | None = None) -> list[str]:
     """读入并合并分片结果。"""
     found = [p for p in paths if p.exists()]
     if expected is not None and len(found) != expected:
-        missing = [str(p) for p in paths if not p.exists()]
+        # 报错必须指出**具体缺哪几片**。只说「缺失：[]」等于没说 ——
+        # shell glob 只会展开实际存在的文件，所以「缺失的文件」这个列表
+        # 天然是空的，得从下标推断：期望 0..N-1，实际拿到了哪几个。
+        got_idx = set()
+        for p in found:
+            for part in p.parts:
+                if part.startswith("shard-"):
+                    tail = part[len("shard-"):]
+                    if tail.isdigit():
+                        got_idx.add(int(tail))
+                    break
+        want = set(range(expected))
+        missing_idx = sorted(want - got_idx)
+        extra_idx = sorted(got_idx - want)
+        detail = []
+        if missing_idx:
+            detail.append(f"缺分片下标 {missing_idx}")
+        if extra_idx:
+            detail.append(f"多出分片下标 {extra_idx}")
+        if not detail:
+            # 下标推不出来（比如文件不是按 shard-N 命名的）→ 退回列文件
+            detail.append(f"实际文件 {[str(p) for p in found]}")
         raise SystemExit(
-            f"❌ 期望 {expected} 个分片文件，实际找到 {len(found)} 个；"
-            f"缺失：{missing}\n"
+            f"❌ 期望 {expected} 个分片文件，实际找到 {len(found)} 个："
+            f"{'；'.join(detail)}\n"
             "某个 shard job 可能失败了 —— 拒绝继续，避免交付残缺产物。"
         )
 

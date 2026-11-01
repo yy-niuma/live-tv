@@ -72,6 +72,7 @@ def test_shard_distribution_is_balanced():
 # ── 合并 ──────────────────────────────────────────────────────────────
 def _w(tmp_path: Path, name: str, urls) -> Path:
     p = tmp_path / name
+    p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(urls), encoding="utf-8")
     return p
 
@@ -91,14 +92,40 @@ def test_merge_tolerates_empty_shard(tmp_path):
 
 def test_merge_refuses_missing_shard(tmp_path):
     """声明 4 片却只给了 3 个文件 → 必须失败，不能静默交付残缺产物。"""
-    a = _w(tmp_path, "a.json", ["http://x/1"])
-    b = _w(tmp_path, "b.json", ["http://x/2"])
-    c = _w(tmp_path, "c.json", ["http://x/3"])
-    missing = tmp_path / "d.json"
+    a = _w(tmp_path, "shard-0/valid.json", ["http://x/1"])
+    b = _w(tmp_path, "shard-1/valid.json", ["http://x/2"])
+    c = _w(tmp_path, "shard-2/valid.json", ["http://x/3"])
+    missing = tmp_path / "shard-3/valid.json"
     try:
         merge([a, b, c, missing], expected=4)
     except SystemExit as e:
-        assert "缺失" in str(e)
+        msg = str(e)
+        assert "3" in msg, f"报错没有指出缺失的下标 3：{msg}"
+        assert "期望 4" in msg, f"报错没有说明期望片数：{msg}"
+    else:
+        raise AssertionError("缺片时必须失败退出")
+
+
+def test_missing_shard_error_names_the_indices(tmp_path):
+    """报错必须指出**具体缺哪几片**（run #219 实测教训）。
+
+    早先版本报「缺失：[]」—— 因为 shell glob 只会展开实际存在的文件，
+    「缺失的文件」这个列表天然是空的，运维看日志完全不知道缺了什么。
+    现在要从 `shard-N` 目录名反推下标，报「缺分片下标 [8, 9, ...]」。
+    """
+    paths = []
+    for i in range(8):
+        p = tmp_path / f"shard-{i}" / "valid.json"
+        p.parent.mkdir(parents=True)
+        p.write_text(json.dumps([f"http://x/{i}"]), encoding="utf-8")
+        paths.append(p)
+    missing = tmp_path / "shard-8" / "valid.json"
+    missing.parent.mkdir(parents=True)
+    try:
+        merge(paths + [missing], expected=16)
+    except SystemExit as e:
+        msg = str(e)
+        assert "8" in msg and "15" in msg, f"报错没有指出缺失下标：{msg}"
     else:
         raise AssertionError("缺片时必须失败退出")
 
