@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-11-01T16:16:51+00:00",
-  "tool_version": "1.0.0+git1294d4f",
+  "generated_at": "2026-11-01T16:24:29+00:00",
+  "tool_version": "1.0.0+git8fc7118",
   "groups_file": "all_merged.m3u",
   "files": {
     "all_merged.m3u": {
-      "sha256": "4afbfee8b99c4cd503554e36ada07a2e8cf9ceb8b4f5eb5a5c88a0d0f64687c8",
-      "bytes": 352413,
-      "channels": 1381,
+      "sha256": "26dddc046ba176463d99cde3d0443cc82f8ea59be89d60377c19528997080976",
+      "bytes": 352565,
+      "channels": 1382,
       "groups": 52
     },
     "hk_merged.m3u": {
@@ -25,7 +25,7 @@
     "📺 浙江": 40,
     "📺 江苏": 20,
     "📺 湖南": 12,
-    "📺 安徽": 6,
+    "📺 安徽": 7,
     "📺 山东": 11,
     "📺 四川": 12,
     "📺 湖北": 3,
