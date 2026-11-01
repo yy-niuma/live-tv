@@ -55,9 +55,9 @@ on:
         default: "10"
         type: string
       shard_count:
-        description: "验证分片数（默认 4；1 = 不分片，单 job 内验证）"
+        description: "验证分片数（默认 8；1 = 不分片，单 job 内验证；上限 16）"
         required: false
-        default: "4"
+        default: "8"
         type: string
   # PR 门禁：只跑 check job，update job 用 job 级 if 挡掉（见文件头 + docs/ci.md §1）
   pull_request:
@@ -134,7 +134,7 @@ jobs:
           # 不要在 shell 里 grep/cut 加工，那会把 `count=16` 削成 `16`，
           # 丢掉 output 的名字，GitHub 报「Invalid format '16'」（run #226 实测）
           python scripts/plan_shards.py \
-            --count "${{ github.event.inputs.shard_count || '4' }}" \
+            --count "${{ github.event.inputs.shard_count || '8' }}" \
             --out shards.json \
             --github-output "$GITHUB_OUTPUT"
 

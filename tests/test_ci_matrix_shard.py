@@ -191,6 +191,26 @@ def test_plan_shards_cli_rejects_bad_count(tmp_path):
     assert r.returncode != 0, "越界分片数必须非零退出"
 
 
+def test_workflow_default_shard_count_is_8():
+    """默认分片数锁 8（实测决策：16 片边际收益只有 37% 但 runner 用量翻倍）。
+
+    这是**成本/收益的平衡点**，不是随手填的：
+    - 1 片 → 12m55s
+    - 8 片 → 5m20s（runner ×8）
+    - 16 片 → 3m22s（runner ×16，边际只快 37%）
+
+    默认值改成别的数会直接影响每天的 runner 用量，所以要钉住。
+    """
+    import yaml
+
+    wf = yaml.safe_load((ROOT / ".github" / "workflows" / "update.yml").read_text())
+    inputs = wf[True]["workflow_dispatch"]["inputs"]
+    assert inputs["shard_count"]["default"] == "8", (
+        f"默认分片数被改成 {inputs['shard_count']['default']} —— "
+        "8 是实测的性价比平衡点，改动要重新算 runner 用量"
+    )
+
+
 def test_github_output_format_keeps_the_name(tmp_path):
     """GITHUB_OUTPUT 必须是 `name=value` —— **名字不能丢**（run #226 实测）。
 
