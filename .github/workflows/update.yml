@@ -130,12 +130,13 @@ jobs:
       - name: 计算分片列表
         id: gen
         run: |
-          # 逻辑放在 scripts/plan_shards.py 里（可被 tests 覆盖），
-          # 这里只负责把输出转成 $GITHUB_OUTPUT
-          COUNT="${{ github.event.inputs.shard_count || '4' }}"
-          python scripts/plan_shards.py --count "$COUNT" --out shards.json | tee /tmp/plan.out
-          grep '^count=' /tmp/plan.out | cut -d= -f2- >> "$GITHUB_OUTPUT"
-          grep '^shards=' /tmp/plan.out | cut -d= -f2- >> "$GITHUB_OUTPUT"
+          # 让脚本**直接写 GITHUB_OUTPUT**（--github-output）——
+          # 不要在 shell 里 grep/cut 加工，那会把 `count=16` 削成 `16`，
+          # 丢掉 output 的名字，GitHub 报「Invalid format '16'」（run #226 实测）
+          python scripts/plan_shards.py \
+            --count "${{ github.event.inputs.shard_count || '4' }}" \
+            --out shards.json \
+            --github-output "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
   # 分片验证（矩阵）：把 19,547 条 URL 切成 N 份，N 个 runner 并行验

@@ -189,3 +189,32 @@ def test_plan_shards_cli_rejects_bad_count(tmp_path):
         capture_output=True, text=True,
     )
     assert r.returncode != 0, "越界分片数必须非零退出"
+
+
+def test_github_output_format_keeps_the_name(tmp_path):
+    """GITHUB_OUTPUT 必须是 `name=value` —— **名字不能丢**（run #226 实测）。
+
+    早先 workflow 里写 `grep '^count=' out | cut -d= -f2- >> $GITHUB_OUTPUT`，
+    `count=16` 被削成 `16`，GitHub 解析时直接报「Invalid format '16'」，
+    整个 plan job 失败 —— 一次只差一个 `-f2-` 的改动就白跑一轮 CI。
+
+    正确做法：脚本用 `--github-output` **直接写**文件，格式由脚本保证。
+    """
+    out = tmp_path / "shards.json"
+    gh = tmp_path / "gh_output.txt"
+    gh.write_text("", encoding="utf-8")
+    r = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "plan_shards.py"),
+         "--count", "4", "--out", str(out), "--github-output", str(gh)],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0, r.stderr[:400]
+    content = gh.read_text(encoding="utf-8")
+    lines = [ln for ln in content.splitlines() if ln.strip()]
+    assert "count=4" in lines, f"GITHUB_OUTPUT 缺 count=4：{lines}"
+    assert "shards=[0, 1, 2, 3]" in lines, f"GITHUB_OUTPUT 缺 shards：{lines}"
+    # 每行都必须有 '='，且名字部分不能为空
+    for ln in lines:
+        assert "=" in ln, f"GITHUB_OUTPUT 的行没有 '='：{ln!r}"
+        name, _, _val = ln.partition("=")
+        assert name.strip(), f"GITHUB_OUTPUT 的行丢了名字：{ln!r}"

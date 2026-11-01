@@ -57,6 +57,11 @@ def main() -> int:
     )
     ap.add_argument("--count", type=int, required=True, help="分片数（1~16）")
     ap.add_argument("--out", required=True, help="输出的 JSON 数组路径")
+    ap.add_argument(
+        "--github-output",
+        default=None,
+        help="GitHub Actions 的 GITHUB_OUTPUT 文件路径；给了就往里写 job outputs",
+    )
     args = ap.parse_args()
 
     try:
@@ -68,9 +73,20 @@ def main() -> int:
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(shards), encoding="utf-8")
-    # workflow 从这个文件读矩阵（用 outputs 传），并用这两行写 $GITHUB_OUTPUT
-    print(f"count={args.count}")
-    print(f"shards={json.dumps(shards)}")
+
+    # ⚠️ 这里**直接写 GITHUB_OUTPUT 文件**，不要让 workflow 去 grep/cut。
+    # 早先版本在 workflow 里写 `grep '^count=' ... | cut -d= -f2- >> $GITHUB_OUTPUT`，
+    # 结果 `count=16` 被削成 `16` —— **丢掉了 output 的名字**，
+    # GitHub 解析时直接报「Invalid format '16'」，整个 plan job 失败（run #226 实测）。
+    # GITHUB_OUTPUT 的格式是 `name=value`，名字必须一起写进去。
+    lines = [f"count={args.count}", f"shards={json.dumps(shards)}"]
+    if args.github_output:
+        with open(args.github_output, "a", encoding="utf-8") as f:
+            for line in lines:
+                f.write(line + "\n")
+    else:
+        for line in lines:
+            print(line)
     print(f"✓ 已写入 {out}（{len(shards)} 片）")
     return 0
 
