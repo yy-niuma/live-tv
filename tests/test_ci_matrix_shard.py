@@ -211,6 +211,30 @@ def test_workflow_default_shard_count_is_8():
     )
 
 
+def test_merged_valid_json_must_not_land_in_output_dir():
+    """中间产物不能落在 `output/` 里（run #231 实测教训）。
+
+    `output/` 是**发布目录**：里面的文件会被 manifest 记录、随提交推给订阅者。
+    `merged_valid.json`（合并后的有效 URL 列表）是中间产物，
+    早先版本把它写在 `output/` 里，结果被当成正式产物提交进了仓库。
+    """
+    import yaml
+
+    wf_text = (ROOT / ".github" / "workflows" / "update.yml").read_text()
+    assert "output/merged_valid.json" not in wf_text, (
+        "merged_valid.json 是中间产物，不能写进发布目录 output/"
+    )
+    # 同时确认它确实被写到了某个地方（别改成不生成了）
+    assert "--out merged_valid.json" in wf_text, (
+        "合并步骤的输出路径不见了 —— 分片模式会拿不到 URL 集合"
+    )
+    # 消费的路径也要跟着改
+    assert "--valid-urls-file merged_valid.json" in wf_text, (
+        "main.py 的消费路径没有跟着改，会读不到合并结果"
+    )
+    # workflow 必须能解析
+    yaml.safe_load(wf_text)
+
 def test_github_output_format_keeps_the_name(tmp_path):
     """GITHUB_OUTPUT 必须是 `name=value` —— **名字不能丢**（run #226 实测）。
 

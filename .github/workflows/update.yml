@@ -327,10 +327,15 @@ jobs:
       - name: 合并分片结果
         # --expected 必须等于实际片数：少一片就失败退出，
         # 绝不静默交付少 1/N 的产物（见 scripts/merge_shard_urls.py 顶部说明）
+        #
+        # ⚠️ 输出路径**不能**放在 output/ 里：output/ 是发布目录，
+        # 里面的文件都会被 manifest 记录并随提交推给订阅者。
+        # merged_valid.json 是中间产物（合并后的有效 URL 列表），
+        # 放进去会被当成正式产物发布出去（run #231 实测：它被提交进了仓库）。
         if: fromJSON(needs.plan.outputs.count) > 1
         run: |
           python scripts/merge_shard_urls.py shards/*/valid.json \
-            --out output/merged_valid.json \
+            --out merged_valid.json \
             --expected ${{ needs.plan.outputs.count }}
 
       - name: 抓取数据
@@ -339,8 +344,8 @@ jobs:
           # 分片模式下消费 shard 的结果，本 job 只做「过滤 → 分组 → 生成」；
           # 不分片模式（shard_count=1）退回单 job 内完整验证。
           EXTRA=""
-          if [ -f output/merged_valid.json ]; then
-            EXTRA="--valid-urls-file output/merged_valid.json"
+          if [ -f merged_valid.json ]; then
+            EXTRA="--valid-urls-file merged_valid.json"
             echo "::notice::分片模式：跳过本 job 内验证，使用合并后的 URL 集合"
           fi
           echo "::group::抓取阶段"

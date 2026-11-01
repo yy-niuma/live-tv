@@ -22,3 +22,6 @@ reports/
 config/stream_health.json
 # 逐源体检历史（check_sources.py --history 追加，本机累计，不入库）
 config/sources_history.jsonl
+merged_valid.json
+shards/
+shard-*/
