@@ -85,6 +85,7 @@ def _positive_int(text: str) -> int:
 
 async def run(config_dir: str = None, output_dir: str = None, use_cache: bool = True,
               skip_validation: bool = False, skip_fetch: bool = False, fetch_timeout: int = 90,
+              valid_urls_file: str = None,
               health_file: str = None,
               validate_concurrency: int = DEFAULT_VALIDATE_CONCURRENCY,
               validate_timeout: int = DEFAULT_VALIDATE_TIMEOUT):
@@ -179,7 +180,22 @@ async def run(config_dir: str = None, output_dir: str = None, use_cache: bool = 
     print(f"\n[Step 2/4] 验证 URL（并发 {validate_concurrency} / "
           f"单条超时 {validate_timeout}s）...")
     stage_start = time.monotonic()
-    if skip_validation:
+    if valid_urls_file:
+        # CI 矩阵分片模式：验证已经在 N 个 shard job 里并发做完了，
+        # 这里只按「已验证有效 URL 集合」过滤，跳过重复探测。
+        #
+        # 为什么不在本 job 里重验：验证占整条流水线 99% 的时间，
+        # 单 job 内并发再高也压不过「N 个 runner 并行」（见 docs/ci.md §8）。
+        # 本 job 只做「合并 → 分组 → 生成 → 门禁 → 推送」，10~40 秒。
+        print(f"  ↻ 从分片结果读取已验证 URL：{valid_urls_file}")
+        with open(valid_urls_file, encoding="utf-8") as f:
+            valid_set = set(json.load(f))
+        valid_channels = [ch for ch in channels if ch.url in valid_set]
+        print(
+            f"  ✓ 分片合并: {len(valid_channels)}/{len(channels)} 个有效"
+            f"（验证集 {len(valid_set)} 条）"
+        )
+    elif skip_validation:
         print("  ⚠ 跳过验证（--skip-validation）")
         valid_channels = channels
     else:
@@ -274,6 +290,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", "-o", default=None, help="输出目录")
     parser.add_argument("--no-cache", action="store_true", help="禁用缓存")
     parser.add_argument("--skip-validation", action="store_true", help="跳过 URL 验证")
+    parser.add_argument("--valid-urls-file", default=None,
+                        help="从该 JSON 文件读取已验证有效的 URL 列表并跳过验证（CI 分片用）")
     parser.add_argument("--skip-fetch", action="store_true",
                         help="跳过抓取步骤，使用缓存数据（无缓存则报错）")
     parser.add_argument("--health-file", default=None,
@@ -305,6 +323,7 @@ def main():
         output_dir=args.output,
         use_cache=not args.no_cache,
         skip_validation=args.skip_validation,
+        valid_urls_file=args.valid_urls_file,
         skip_fetch=args.skip_fetch,
         fetch_timeout=args.fetch_timeout,
         health_file=args.health_file,

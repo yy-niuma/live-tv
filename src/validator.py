@@ -332,7 +332,6 @@ class Validator:
         self._host_counts = counts
         self._host_sems = {}
         done = {"n": 0, "ok": 0}
-        timings: List[tuple] = []
         t_start = time.monotonic()
         stop = asyncio.Event()
 
@@ -361,9 +360,7 @@ class Validator:
                 )
 
         async def _one(i: int) -> bool:
-            t0 = time.monotonic()
             r = await self._validate_one(channels[i])
-            timings.append((time.monotonic() - t0, getattr(channels[i], "url", "")))
             done["n"] += 1
             if r is True:
                 done["ok"] += 1
@@ -394,43 +391,21 @@ class Validator:
         # 整批跑完再落盘：不拖慢单条探测，也避免并发写文件
         self.persist_health()
         elapsed = time.monotonic() - t_start
-        self._print_slowest(timings, elapsed, total)
+        # 注意：这里只能报**墙钟均摊**，不能报「单条耗时排行」。
+        # `_one` 里量的时长包含了排队等 semaphore 的时间 —— 19,547 个任务
+        # 一次性提交，队尾的等待就有几百秒，量出来的「最慢 URL」其实是
+        # 「最后被调度到的 URL」，纯属误导（第一版就掉进这个坑：
+        # 报出「串行总计 4,825,102s / 均 247s 条」，而墙钟才 717s）。
+        # 真实单条探测耗时要用 scripts/profile_validation_cost.py 单独量。
+        print(
+            f"  [验证耗时] 墙钟 {elapsed:.0f}s / {total} 条 "
+            f"= {elapsed / max(1, total):.2f}s/条（均摊，非单条探测耗时）",
+            flush=True,
+        )
         valid_by_index = {i: r for i, r in zip(order, results)}
         return [
             ch for i, ch in enumerate(channels) if valid_by_index.get(i) is True
         ]
-
-    @staticmethod
-    def _print_slowest(timings: List[tuple], elapsed: float, total: int) -> None:
-        """打印最慢的 10 条 URL —— 用来定位「谁在吃时间」。
-
-        验证阶段慢的时候，只看总耗时没法判断是「普遍慢」还是
-        「少数几条卡死」。耗时排行能直接区分这两种情况：
-        若 top10 之和就占了总耗时的大头 → 是个别卡死，值得单独处理；
-        若 top10 都很小 → 是普遍的源站延迟，只能靠并发或分片。
-        """
-        if not timings:
-            return
-        timings.sort(key=lambda x: -x[0])
-        top = timings[:10]
-        top_sum = sum(t for t, _ in top)
-        serial_total = sum(t for t, _ in timings)
-        print(
-            f"  [验证耗时] 总计 {elapsed:.0f}s / {total} 条 "
-            f"= {elapsed / max(1, total):.2f}s/条（墙钟均摊）",
-            flush=True,
-        )
-        # 注意口径：这些 URL 是**并发**跑的，所以「top10 之和」与墙钟不能直接比
-        # （并发下 sum 会远大于墙钟，得出 >100% 的假百分比）。
-        # 正确比法是拿它跟**串行总耗时**比 —— 那才是「占比」的含义。
-        print(
-            f"  [验证耗时] 最慢 10 条合计 {top_sum:.0f}s "
-            f"（占串行总耗时 {top_sum / max(1e-9, serial_total) * 100:.0f}% / "
-            f"串行总计 {serial_total:.0f}s）",
-            flush=True,
-        )
-        for dt, url in top:
-            print(f"      {dt:6.2f}s  {url[:96]}", flush=True)
 
     async def _validate_one(self, channel: Channel) -> bool:
         """验证单个频道。

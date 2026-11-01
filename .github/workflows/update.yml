@@ -54,6 +54,11 @@ on:
         required: false
         default: "10"
         type: string
+      shard_count:
+        description: "验证分片数（默认 4；1 = 不分片，单 job 内验证）"
+        required: false
+        default: "4"
+        type: string
   # PR 门禁：只跑 check job，update job 用 job 级 if 挡掉（见文件头 + docs/ci.md §1）
   pull_request:
   # 主干 push：只跑只读的 check；生产 update 被 job 级 allowlist 挡住（见文件头锁 2）
@@ -95,6 +100,85 @@ env:
   VALIDATE_TIMEOUT: ${{ inputs.validate_timeout || '10' }}
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # 分片验证（矩阵）：把 19,547 条 URL 切成 N 份，N 个 runner 并行验
+  #
+  # 为什么需要分片（2026-11-01 实测数据）：
+  #   run #211（单 job，并发 80，自适应 per-host）验证阶段 717.2s，
+  #   已经压到「19,547 条 ÷ 80 并发 × 单条约 2.9s」的理论下限附近。
+  #   继续调并发的路已经走到头：本地实测 160/240 档开始掉条（源站限流）。
+  #   **唯一还能线性压缩 wall clock 的就是多 runner 并行。**
+  #
+  # 分片规则见 scripts/validate_shard.py：按 sha1(url) % N 切，
+  # 稳定（同 URL 永远同片）且均衡（轮转切片会把热 host 挤在少数片里）。
+  #
+  # 每片只上传「已验证有效 URL 列表」这一个 JSON，不传 stream_health 快照 ——
+  # 熔断冻结期 min(24h, 60×2^bad) 对 3 连败也才 8 分钟，远小于跑批间隔，
+  # 快照在 CI 场景里几乎不生效，传它只会让 N 个 job 抢同一个文件。
+  # ---------------------------------------------------------------------------
+  shard:
+    name: 分片验证 shard ${{ matrix.shard }}
+    # 分片数 > 1 才跑；= 1 时退回单 job 内验证（update 里自带）
+    if: |
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      fromJSON(github.event.inputs.shard_count || '4') > 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      # 一片失败不能取消其他片：重跑时要能看到完整的分片健康状况
+      fail-fast: false
+      matrix:
+        # 上限 8 片；实际跑几片由 shard_count 决定（超出的会在 job 级 if 里被挡）
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+
+    steps:
+      - name: 超出 shard_count 的片直接跳过
+        id: gate
+        if: matrix.shard >= fromJSON(github.event.inputs.shard_count || '4')
+        run: echo "skip=true" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: 安装依赖
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 验证本片
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          python -u scripts/validate_shard.py \
+            --shard-index ${{ matrix.shard }} \
+            --shard-count ${{ github.event.inputs.shard_count || '4' }} \
+            --validate-concurrency ${{ env.VALIDATE_CONCURRENCY }} \
+            --validate-timeout ${{ env.VALIDATE_TIMEOUT }} \
+            --fetch-timeout ${{ env.FETCH_TIMEOUT }} \
+            --out-dir ./shard-${{ matrix.shard }}
+
+      - name: 上传分片结果
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: shard-${{ matrix.shard }}
+          path: shard-${{ matrix.shard }}/valid.json
+          retention-days: 1
+          if-no-files-found: error
+
   # ---------------------------------------------------------------------------
   # 门禁：静态检查（阻断）+ 类型检查（提示）+ 测试（阻断）
   # ---------------------------------------------------------------------------
@@ -158,10 +242,13 @@ jobs:
   # ---------------------------------------------------------------------------
   update:
     name: 抓取 → 验证 → 生成 → 门禁 → 推送
-    # 防环锁 2（见文件头）：**正面列举**允许跑生产的事件，而不是黑名单。
-    # PR 上不跑（这一步会 git push origin HEAD:main）；push 上不跑（会自触发）。
+    # 依赖 shard（分片验证）。shard 被跳过时（shard_count=1）本 job 仍要跑，
+    # 所以用 always() + 结果白名单，而不是裸 needs（裸 needs 遇 skipped 会一起跳）。
+    needs: shard
     if: |
-      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+      always() &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      (needs.shard.result == 'success' || needs.shard.result == 'skipped')
     runs-on: ubuntu-latest
     # 45 → 90 分钟（2026-11-01）。
     #
@@ -199,15 +286,40 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: 下载分片验证结果
+        # 分片模式下 shard job 已上传各片 valid.json
+        if: fromJSON(github.event.inputs.shard_count || '4') > 1
+        uses: actions/download-artifact@v4
+        with:
+          pattern: shard-*
+          path: shards
+
+      - name: 合并分片结果
+        # --expected 必须等于实际片数：少一片就失败退出，
+        # 绝不静默交付少 1/N 的产物（见 scripts/merge_shard_urls.py 顶部说明）
+        if: fromJSON(github.event.inputs.shard_count || '4') > 1
+        run: |
+          python scripts/merge_shard_urls.py shards/*/valid.json \
+            --out output/merged_valid.json \
+            --expected ${{ github.event.inputs.shard_count || '4' }}
+
       - name: 抓取数据
         id: fetch
         run: |
+          # 分片模式下消费 shard 的结果，本 job 只做「过滤 → 分组 → 生成」；
+          # 不分片模式（shard_count=1）退回单 job 内完整验证。
+          EXTRA=""
+          if [ -f output/merged_valid.json ]; then
+            EXTRA="--valid-urls-file output/merged_valid.json"
+            echo "::notice::分片模式：跳过本 job 内验证，使用合并后的 URL 集合"
+          fi
           echo "::group::抓取阶段"
           python -u -m src.main \
             --no-cache \
             --fetch-timeout ${{ env.FETCH_TIMEOUT }} \
             --validate-concurrency ${{ env.VALIDATE_CONCURRENCY }} \
             --validate-timeout ${{ env.VALIDATE_TIMEOUT }} \
+            $EXTRA \
             --output ./output
           echo "::endgroup::"
 
