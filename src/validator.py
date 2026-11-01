@@ -1,6 +1,7 @@
 """验证模块：HEAD 优先、Content-Type 检查、代理域名拒绝、CDN 白名单跳过、熔断跳过已知死链"""
 import asyncio
 import re
+import time
 from collections import deque
 from contextlib import asynccontextmanager
 from typing import Deque, Dict, List, Set
@@ -137,9 +138,13 @@ BARE_MEDIA_SUFFIXES = (".ts", ".mp4", ".mp3", ".aac", ".flv", ".m4s", ".mov")
 # 选一个：判死（误杀真频道 + 毒化熔断计数）或原地放行（没验证就进产物）。
 #
 # 代价：DNS 正常时循环只跑 1 轮，零额外请求；只有真的解析失败才多花
-# 0.5s / 1.0s 两次退避。
-DNS_RETRIES = 2
-DNS_RETRY_DELAY = 0.5
+# 0.2s 一次退避。
+#
+# 为什么从 2 次降到 1 次：DNS 重试是**唯一会让每条失败 URL 变慢**的改动，
+# CI dispatch 实测（run #205/#208）验证阶段从 18 分钟涨到 27+ 分钟，
+# 需要先把它压到最小影响面再定位。1 次足够覆盖「瞬时 EAI_AGAIN」。
+DNS_RETRIES = 1
+DNS_RETRY_DELAY = 0.2
 
 # 分级超时（见 `Validator._timeout_for`）：连败达到这个次数的 URL 视为「已知死链」，
 # 用短超时探测。CI 实测验证阶段 99% 的耗时都花在等这些老死链的超时上。
@@ -311,15 +316,57 @@ class Validator:
         self._semaphore = asyncio.Semaphore(self.max_concurrent)
         self._in_batch = True
         self._session = None
+        total = len(channels)
+        done = {"n": 0, "ok": 0}
+        timings: List[tuple] = []
+        t_start = time.monotonic()
+        stop = asyncio.Event()
+
+        async def _progress():
+            """每 20 秒打一行进度。
+
+            为什么必须要有：验证阶段在 CI 上占整个 job 的 99%，
+            而之前**一行输出都没有** —— 45 分钟的验证是个纯黑盒，
+            只能靠猜是 `fetch` 慢还是 `validate` 慢、是超时还是卡死。
+            有了这行日志，任何一个 CI 跑批都能直接看出速率和 ETA。
+            """
+            while not stop.is_set():
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=20)
+                    break
+                except asyncio.TimeoutError:
+                    pass
+                el = time.monotonic() - t_start
+                n, ok = done["n"], done["ok"]
+                rate = n / el if el > 0 else 0.0
+                eta = (total - n) / rate if rate > 0 else 0.0
+                print(
+                    f"  [验证进度] {n}/{total} ({n * 100 // max(1, total)}%) "
+                    f"ok={ok} 速率={rate:.1f}/s 已用={el:.0f}s ETA={eta:.0f}s",
+                    flush=True,
+                )
+
+        async def _one(i: int) -> bool:
+            t0 = time.monotonic()
+            r = await self._validate_one(channels[i])
+            timings.append((time.monotonic() - t0, getattr(channels[i], "url", "")))
+            done["n"] += 1
+            if r is True:
+                done["ok"] += 1
+            return r
+
+        prog_task = asyncio.ensure_future(_progress())
         try:
             # 按 host 轮转重排探测**顺序**，消除 per-host 限流的队头阻塞
             # （真实数据里 67.6% 的 URL 是同 host 成块连续的，见
             #  `_interleave_by_host`）。判定与返回顺序都不变 ——
             # 结果按原下标映射回去，产物顺序仍然是输入的频道顺序。
             order = _interleave_by_host(channels)
-            tasks = [self._validate_one(channels[i]) for i in order]
+            tasks = [_one(i) for i in order]
             results = await asyncio.gather(*tasks, return_exceptions=True)
         finally:
+            stop.set()
+            prog_task.cancel()
             self._in_batch = False
             session = self._session
             self._session = None
@@ -332,10 +379,39 @@ class Validator:
                     await closer()
         # 整批跑完再落盘：不拖慢单条探测，也避免并发写文件
         self.persist_health()
+        elapsed = time.monotonic() - t_start
+        self._print_slowest(timings, elapsed, total)
         valid_by_index = {i: r for i, r in zip(order, results)}
         return [
             ch for i, ch in enumerate(channels) if valid_by_index.get(i) is True
         ]
+
+    @staticmethod
+    def _print_slowest(timings: List[tuple], elapsed: float, total: int) -> None:
+        """打印最慢的 10 条 URL —— 用来定位「谁在吃时间」。
+
+        验证阶段慢的时候，只看总耗时没法判断是「普遍慢」还是
+        「少数几条卡死」。耗时排行能直接区分这两种情况：
+        若 top10 之和就占了总耗时的大头 → 是个别卡死，值得单独处理；
+        若 top10 都很小 → 是普遍的源站延迟，只能靠并发或分片。
+        """
+        if not timings:
+            return
+        timings.sort(key=lambda x: -x[0])
+        top = timings[:10]
+        top_sum = sum(t for t, _ in top)
+        print(
+            f"  [验证耗时] 总计 {elapsed:.0f}s / {total} 条 "
+            f"= {elapsed / max(1, total):.2f}s/条（串行意义）",
+            flush=True,
+        )
+        print(
+            f"  [验证耗时] 最慢 10 条合计 {top_sum:.0f}s "
+            f"（占墙钟 {top_sum / max(1e-9, elapsed) * 100:.0f}%）",
+            flush=True,
+        )
+        for dt, url in top:
+            print(f"      {dt:6.2f}s  {url[:96]}", flush=True)
 
     async def _validate_one(self, channel: Channel) -> bool:
         """验证单个频道。

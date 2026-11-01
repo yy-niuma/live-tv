@@ -42,6 +42,7 @@ import aiohttp
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from src import validator as V  # noqa: E402
 from src.validator import Validator  # noqa: E402
 
 DNS_URL = "http://nonexistent-host-for-test.invalid/live/x.m3u8"
@@ -224,8 +225,10 @@ def test_dns_retry_exhausted_falls_back_to_conservative_pass(monkeypatch):
     v._semaphore = asyncio.Semaphore(2)
 
     assert asyncio.run(v._check_url(DNS_URL)) is True
-    assert session.calls == 3, (
-        f"应该尝试 {3} 次（1 次 + 2 次重试），实际 {session.calls} 次"
+    expected = V.DNS_RETRIES + 1
+    assert session.calls == expected, (
+        f"应该尝试 {expected} 次（1 次 + {V.DNS_RETRIES} 次重试），"
+        f"实际 {session.calls} 次"
     )
 
 
