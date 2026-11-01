@@ -34,6 +34,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.merge_shard_urls import merge  # noqa: E402
+from scripts.plan_shards import build_matrix  # noqa: E402
 from scripts.validate_shard import shard_of  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -138,10 +139,53 @@ def test_merge_skips_non_string_entries(tmp_path):
 
 # ── CLI 冒烟（参数契约） ──────────────────────────────────────────────
 def test_cli_help_exits_zero():
-    for script in ("validate_shard.py", "merge_shard_urls.py"):
+    for script in ("validate_shard.py", "merge_shard_urls.py", "plan_shards.py"):
         r = subprocess.run(
             [sys.executable, str(ROOT / "scripts" / script), "--help"],
             capture_output=True,
             text=True,
         )
         assert r.returncode == 0, f"{script} --help 失败：{r.stderr[:400]}"
+
+
+# ── 矩阵生成（plan job 的逻辑） ───────────────────────────────────────
+def test_build_matrix_length_matches_count():
+    """动态矩阵长度必须精确等于分片数 —— 这是「超出范围的片不被创建」的前提。"""
+    for n in (1, 2, 4, 8, 16):
+        assert len(build_matrix(n)) == n
+        assert build_matrix(n) == list(range(n))
+
+
+def test_build_matrix_rejects_out_of_range():
+    """越界分片数必须抛错，不能默默生成错矩阵。"""
+    for bad in (0, -1, 17, 100):
+        try:
+            build_matrix(bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"分片数 {bad} 应该被拒绝")
+
+
+def test_plan_shards_cli_writes_matrix(tmp_path):
+    """CLI 必须写出 JSON 数组并输出可被 workflow 解析的两行。"""
+    out = tmp_path / "shards.json"
+    r = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "plan_shards.py"),
+         "--count", "4", "--out", str(out)],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0, r.stderr[:400]
+    assert json.loads(out.read_text()) == [0, 1, 2, 3]
+    assert "count=4" in r.stdout
+    assert "shards=[0, 1, 2, 3]" in r.stdout
+
+
+def test_plan_shards_cli_rejects_bad_count(tmp_path):
+    out = tmp_path / "shards.json"
+    r = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "plan_shards.py"),
+         "--count", "99", "--out", str(out)],
+        capture_output=True, text=True,
+    )
+    assert r.returncode != 0, "越界分片数必须非零退出"

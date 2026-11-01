@@ -101,6 +101,43 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # 计划：动态生成分片矩阵
+  #
+  # 为什么需要它：GitHub Actions 的 **job 级 if 不能引用 `matrix` 上下文**
+  # （job 级 if 在矩阵展开之前求值）。所以「本片序号 < shard_count」这个
+  # 条件没法写在 job 级，只能靠**动态矩阵**来控制实际启动几个 job。
+  #
+  # 早先版本把矩阵写死 8 片、用 step 级 if 跳过超出的片，结果：
+  #   - 超出的片照样**启动 runner**、跑完 checkout + 装依赖才跳过（浪费）
+  #   - 16 片配置下 8 号以上没有 artifact，合并步骤直接失败（run #219 实测）
+  #
+  # 动态矩阵让「实际启动几个 job」精确等于 shard_count，超出的**根本不创建**。
+  # ---------------------------------------------------------------------------
+  plan:
+    name: 生成分片矩阵
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      shards: ${{ steps.gen.outputs.shards }}
+      count: ${{ steps.gen.outputs.count }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 计算分片列表
+        id: gen
+        run: |
+          # 逻辑放在 scripts/plan_shards.py 里（可被 tests 覆盖），
+          # 这里只负责把输出转成 $GITHUB_OUTPUT
+          COUNT="${{ github.event.inputs.shard_count || '4' }}"
+          python scripts/plan_shards.py --count "$COUNT" --out shards.json | tee /tmp/plan.out
+          grep '^count=' /tmp/plan.out | cut -d= -f2- >> "$GITHUB_OUTPUT"
+          grep '^shards=' /tmp/plan.out | cut -d= -f2- >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
   # 分片验证（矩阵）：把 19,547 条 URL 切成 N 份，N 个 runner 并行验
   #
   # 为什么需要分片（2026-11-01 实测数据）：
@@ -118,19 +155,11 @@ jobs:
   # ---------------------------------------------------------------------------
   shard:
     name: 分片验证 shard ${{ matrix.shard }}
-    # 三层条件，**全部在 job 级**（job 级 if 在分配 runner 之前求值）：
-    #   1) 只在 schedule / workflow_dispatch 跑
-    #   2) shard_count > 1 才分片（=1 时退回单 job 内验证）
-    #   3) 本片的序号必须 < shard_count —— 超出矩阵范围的片**根本不启动 runner**
-    #
-    # ⚠️ 条件 3 为什么必须在 job 级：早先版本把它放在「跳过本片」这个
-    # step 里（step 级 if），结果超出范围的片**照样启动 runner**、跑完
-    # checkout + 装依赖才跳过 —— 16 片配置下 8 个 runner 白跑，
-    # 而合并步骤因为只收到 8 个 artifact 直接失败（run #219 实测）。
-    if: >-
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
-      fromJSON(github.event.inputs.shard_count || '4') > 1 &&
-      matrix.shard < fromJSON(github.event.inputs.shard_count || '4')
+    needs: plan
+    # shard_count=1 时不分片：整个 shard job 跳过，update 走「单 job 内验证」
+    if: |
+      always() && needs.plan.result == 'success' &&
+      fromJSON(needs.plan.outputs.count) > 1
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -139,9 +168,8 @@ jobs:
       # 一片失败不能取消其他片：重跑时要能看到完整的分片健康状况
       fail-fast: false
       matrix:
-        # 上限 16 片。实际跑几片由 shard_count 决定，超出的在 job 级 if 里
-        # 被整个挡掉（不启动 runner）。矩阵是静态的，所以这里只能给上限。
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        # 动态矩阵：实际长度 = shard_count，所以超出范围的片**不会被创建**
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
 
     steps:
       - name: Checkout
@@ -165,7 +193,7 @@ jobs:
         run: |
           python -u scripts/validate_shard.py \
             --shard-index ${{ matrix.shard }} \
-            --shard-count ${{ github.event.inputs.shard_count || '4' }} \
+            --shard-count ${{ needs.plan.outputs.count }} \
             --validate-concurrency ${{ env.VALIDATE_CONCURRENCY }} \
             --validate-timeout ${{ env.VALIDATE_TIMEOUT }} \
             --fetch-timeout ${{ env.FETCH_TIMEOUT }} \
@@ -244,10 +272,11 @@ jobs:
     name: 抓取 → 验证 → 生成 → 门禁 → 推送
     # 依赖 shard（分片验证）。shard 被跳过时（shard_count=1）本 job 仍要跑，
     # 所以用 always() + 结果白名单，而不是裸 needs（裸 needs 遇 skipped 会一起跳）。
-    needs: shard
+    needs: [plan, shard]
     if: |
       always() &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      needs.plan.result == 'success' &&
       (needs.shard.result == 'success' || needs.shard.result == 'skipped')
     runs-on: ubuntu-latest
     # 45 → 90 分钟（2026-11-01）。
@@ -288,7 +317,7 @@ jobs:
 
       - name: 下载分片验证结果
         # 分片模式下 shard job 已上传各片 valid.json
-        if: fromJSON(github.event.inputs.shard_count || '4') > 1
+        if: fromJSON(needs.plan.outputs.count) > 1
         uses: actions/download-artifact@v4
         with:
           pattern: shard-*
@@ -297,11 +326,11 @@ jobs:
       - name: 合并分片结果
         # --expected 必须等于实际片数：少一片就失败退出，
         # 绝不静默交付少 1/N 的产物（见 scripts/merge_shard_urls.py 顶部说明）
-        if: fromJSON(github.event.inputs.shard_count || '4') > 1
+        if: fromJSON(needs.plan.outputs.count) > 1
         run: |
           python scripts/merge_shard_urls.py shards/*/valid.json \
             --out output/merged_valid.json \
-            --expected ${{ github.event.inputs.shard_count || '4' }}
+            --expected ${{ needs.plan.outputs.count }}
 
       - name: 抓取数据
         id: fetch
