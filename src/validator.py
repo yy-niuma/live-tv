@@ -1,8 +1,9 @@
 """验证模块：HEAD 优先、Content-Type 检查、代理域名拒绝、CDN 白名单跳过、熔断跳过已知死链"""
 import asyncio
 import re
+from collections import deque
 from contextlib import asynccontextmanager
-from typing import List, Set
+from typing import Deque, Dict, List, Set
 from urllib.parse import urljoin, urlparse, urlsplit
 
 import aiohttp
@@ -172,6 +173,45 @@ def _looks_like_bare_media_url(url: str) -> bool:
     return path.endswith(BARE_MEDIA_SUFFIXES)
 
 
+def _interleave_by_host(channels: List[Channel]) -> List[int]:
+    """按 host 轮转重排探测顺序，返回下标序列。
+
+    **为什么需要**：真实数据里同 host 的 URL 是**成块连续**的 ——
+    19,319 条 URL 中有 **67.6%** 落在「连续同一 host 超过 4 条」的段里，
+    最长的两段是 `stream1.freetv.fun` 1,199 条、`jmp2.uk` 1,179 条。
+
+    在 per-host 限流（`PER_HOST_CONCURRENCY`）下，这种顺序会造成
+    **队头阻塞**：轮到某个热 host 的那一段时，只有 4 个请求在飞，
+    其余全局名额空转，直到这一段跑完才轮到下一个 host。
+
+    按 host 轮转（round-robin）之后，同一时刻在飞的是「各 host 各一条」，
+    既满足 per-host 上限，又能把全局并发放满。
+
+    ⚠️ 只改**顺序**，不改任何判定 —— 结果仍按原下标映射回去。
+    """
+    if not channels:
+        return []
+
+    buckets: Dict[str, Deque[int]] = {}
+    for i, ch in enumerate(channels):
+        try:
+            host = urlparse(getattr(ch, "url", "") or "").hostname or ""
+        except Exception:
+            host = ""
+        buckets.setdefault(host, deque()).append(i)
+
+    order: List[int] = []
+    queues = [q for q in buckets.values() if q]
+    while queues:
+        nxt = []
+        for q in queues:
+            order.append(q.popleft())
+            if q:
+                nxt.append(q)
+        queues = nxt
+    return order
+
+
 class Validator:
     """频道 URL 验证器
 
@@ -272,7 +312,12 @@ class Validator:
         self._in_batch = True
         self._session = None
         try:
-            tasks = [self._validate_one(ch) for ch in channels]
+            # 按 host 轮转重排探测**顺序**，消除 per-host 限流的队头阻塞
+            # （真实数据里 67.6% 的 URL 是同 host 成块连续的，见
+            #  `_interleave_by_host`）。判定与返回顺序都不变 ——
+            # 结果按原下标映射回去，产物顺序仍然是输入的频道顺序。
+            order = _interleave_by_host(channels)
+            tasks = [self._validate_one(channels[i]) for i in order]
             results = await asyncio.gather(*tasks, return_exceptions=True)
         finally:
             self._in_batch = False
@@ -287,7 +332,10 @@ class Validator:
                     await closer()
         # 整批跑完再落盘：不拖慢单条探测，也避免并发写文件
         self.persist_health()
-        return [ch for ch, valid in zip(channels, results) if valid is True]
+        valid_by_index = {i: r for i, r in zip(order, results)}
+        return [
+            ch for i, ch in enumerate(channels) if valid_by_index.get(i) is True
+        ]
 
     async def _validate_one(self, channel: Channel) -> bool:
         """验证单个频道。
