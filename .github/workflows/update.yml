@@ -319,7 +319,7 @@ jobs:
       - name: 下载分片验证结果
         # 分片模式下 shard job 已上传各片 valid.json
         if: fromJSON(needs.plan.outputs.count) > 1
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: shard-*
           path: shards
