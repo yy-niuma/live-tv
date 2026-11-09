@@ -4,16 +4,16 @@
 #
 # 来源: .venv pip freeze 抽出, 并在 Python 3.11.15 下用 pip install --dry-run --report 复算一致。
 # typing_extensions 同时出现在 requirements.txt: 是 aiohttp 与 mypy 的共同传递依赖, 版本必须一致。
-ast_serialize==0.13.1
+ast-serialize==0.13.1
 iniconfig==2.3.1
 librt==0.16.0
-mypy==2.4.0
-mypy_extensions==1.1.0
+mypy==2.4.1
+mypy-extensions==1.1.0
 packaging==26.3
 pathspec==1.1.1
-Pygments==2.21.0
 pluggy==1.7.0
+pygments==2.21.0
 pytest==9.2.0
 pytest-asyncio==1.4.1
-ruff==0.17.3
-typing_extensions==4.16.0
+ruff==0.17.4
+typing-extensions==4.16.0
